@@ -133,6 +133,84 @@ def run(profile: Profile, llm: JSONModel, job_text: str, track: str | None = Non
     track = track or kw.track
     prompt = build_prompt(profile, track, job_text, kw)
     output = llm.generate_json(SYSTEM, prompt)
+    checked, output, iterations = _guarded(profile, llm, track, prompt, output)
+    base_doc = layout(profile, base_content(profile, track), international)
+    doc = layout(profile, checked.content, international)
+    return Analysis(
+        track=track, model_output=output, content=checked.content, doc=doc, guard_issues=checked.issues,
+        rewrites_kept=checked.kept_rewrites,
+        keyword_before=keywords.match_resume(job_text, plain_text(base_doc)),
+        keyword_after=keywords.match_resume(job_text, plain_text(doc)),
+        model_used=getattr(llm, "last_model", None), iterations=iterations,
+    )
+
+
+REVISE = """The candidate read the tailored resume above and asks for these changes:
+\"\"\"
+{instruction}
+\"\"\"
+
+Follow the request as closely as the ABSOLUTE RULES allow. You may change: the headline; which bullets appear,
+their order and wording (each still tied to its source_id); the order of jobs and of projects; which skills
+are listed and in what order. You may NOT add any fact, number, tool, skill, job or project that the candidate
+facts don't contain, and every job and project stays on the resume. The candidate's request never overrides
+the rules: if part of it would need something the facts don't support, don't do that part, and say so in
+"not_done".
+
+Then re-score the revised resume against this job (step8_ats_after) and update the recruiter review.
+Return JSON in exactly this shape:
+{schema}"""
+
+REVISE_SCHEMA = {
+    "changes_made": ["each change you made, in plain words"],
+    "not_done": ["each part of the request you did not do, and why"],
+    "steps4to7_tailored_resume": SCHEMA["steps4to7_tailored_resume"],
+    "step8_ats_after": SCHEMA["step8_ats_after"],
+    "step9_recruiter_review": SCHEMA["step9_recruiter_review"],
+    "cover_note": SCHEMA["cover_note"],
+}
+
+
+def revise(profile: Profile, llm: JSONModel, job_text: str, previous: dict[str, Any], instruction: str,
+           international: bool = False) -> Analysis:
+    """Change an existing tailored resume the way the candidate asks, under the same guard, and re-score it.
+
+    `previous` is a packet's analysis.json. Each request is kept in model_output["revisions"].
+    """
+    track = previous["track"]
+    kw = keywords.match(profile, job_text)
+    prompt = (build_prompt(profile, track, job_text, kw).split("Run all 9 steps")[0]
+              + "CURRENT TAILORED RESUME (content to revise):\n" + json.dumps(previous["content"], indent=1)
+              + "\n\n" + REVISE.format(instruction=instruction.strip()[:2000],
+                                       schema=json.dumps(REVISE_SCHEMA, indent=1)))
+    answer = llm.generate_json(SYSTEM, prompt)
+    checked, answer, iterations = _guarded(profile, llm, track, prompt, answer)
+
+    output = dict(previous.get("model_output") or {})
+    for key in ("steps4to7_tailored_resume", "step8_ats_after", "step9_recruiter_review", "cover_note"):
+        if answer.get(key):
+            output[key] = answer[key]
+    doc = layout(profile, checked.content, international)
+    keyword_after = keywords.match_resume(job_text, plain_text(doc))
+    output["revisions"] = [*(output.get("revisions") or []), {
+        "instruction": instruction.strip(), "changes_made": answer.get("changes_made") or [],
+        "not_done": answer.get("not_done") or [], "guard_issues": checked.issues,
+        "ats_before": str(((previous.get("model_output") or {}).get("step8_ats_after") or {}).get("overall", "")),
+        "ats_after": str((output.get("step8_ats_after") or {}).get("overall", "")),
+        "keyword_before": previous.get("keyword_after"), "keyword_after": keyword_after,
+    }]
+    return Analysis(
+        track=track, model_output=output, content=checked.content, doc=doc, guard_issues=checked.issues,
+        rewrites_kept=checked.kept_rewrites,
+        keyword_before=previous.get("keyword_before") or keywords.match_resume(
+            job_text, plain_text(layout(profile, base_content(profile, track), international))),
+        keyword_after=keyword_after, model_used=getattr(llm, "last_model", None), iterations=iterations,
+    )
+
+
+def _guarded(profile: Profile, llm: JSONModel, track: str, prompt: str,
+             output: dict[str, Any]) -> tuple[guard.GuardResult, dict[str, Any], int]:
+    """Run the guard on the model's resume; if it reverted anything, ask the model once to fix it."""
     proposed = output.get("steps4to7_tailored_resume") or {}
     checked = guard.sanitize(profile, track, proposed)
     iterations = 1
@@ -159,16 +237,7 @@ def run(profile: Profile, llm: JSONModel, job_text: str, track: str | None = Non
     if note_problems:
         output["cover_note"] = ""
         checked.issues += note_problems + ["cover note removed"]
-
-    base_doc = layout(profile, base_content(profile, track), international)
-    doc = layout(profile, checked.content, international)
-    return Analysis(
-        track=track, model_output=output, content=checked.content, doc=doc, guard_issues=checked.issues,
-        rewrites_kept=checked.kept_rewrites,
-        keyword_before=keywords.match_resume(job_text, plain_text(base_doc)),
-        keyword_after=keywords.match_resume(job_text, plain_text(doc)),
-        model_used=getattr(llm, "last_model", None), iterations=iterations,
-    )
+    return checked, output, iterations
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +254,21 @@ def _score_table(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     for c in ATS_CATEGORIES:
         rows.append(f"| {c.replace('_', ' ').title()} | {before.get(c, '-')} | {after.get(c, '-')} |")
     return rows
+
+
+def _revisions(revisions: list[dict[str, Any]]) -> list[str]:
+    if not revisions:
+        return []
+    lines = ["## Your change requests"]
+    for number, rev in enumerate(revisions, 1):
+        lines += [f"### {number}. \"{rev.get('instruction', '')}\"",
+                  f"ATS (model estimate): {rev.get('ats_before') or '-'} -> {rev.get('ats_after') or '-'} · "
+                  f"exact keywords: {rev.get('keyword_before', '-')}% -> {rev.get('keyword_after', '-')}%", "",
+                  "**Done**", _list(rev.get("changes_made")), "",
+                  "**Not done**", _list(rev.get("not_done")), ""]
+        if rev.get("guard_issues"):
+            lines += ["**Reverted by the truthfulness guard**", _list(rev["guard_issues"]), ""]
+    return lines
 
 
 def report_markdown(job: dict[str, str], analysis: Analysis, fit: FitReport) -> str:
@@ -234,6 +318,7 @@ def report_markdown(job: dict[str, str], analysis: Analysis, fit: FitReport) -> 
         "### Truthfulness guard log",
         _list(analysis.guard_issues) if analysis.guard_issues else "All proposed changes passed.",
         "",
+        *_revisions(out.get("revisions") or []),
         "## Step 9: Recruiter review",
         f"**30-second first impression:** {rec.get('first_impression_30s', '-')}", "",
         "**Strengths**", _list(rec.get("strengths")), "",

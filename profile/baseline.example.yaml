@@ -266,6 +266,7 @@ preferences:
   home_country: India            # jobs elsewhere count as "abroad"
   # home_places: [berlin, munich, hamburg, germany]   # cities in your home country (built in for India)
   ok_locations: [bengaluru, bangalore, remote]   # home-country places you are happy to work in
+  other_home_locations: review   # other cities in your home country: review (flag them) or skip (leave out)
   salary_min_lpa: 6              # India only: minimum pay in lakhs per annum. Remove if not in India.
   expected_salary: 6 LPA or above (open to discussion)   # your answer for jobs in your home country
   salary_min:                    # minimum annual pay by currency, for jobs that state it

@@ -16,7 +16,7 @@ from career.profile import Profile
 from career.render import MAX_SIZE, OnePageError, write_resume
 from career.resume import base_content, layout
 
-OK, NEEDS_DESCRIPTION, LLM_FAILED, LAYOUT_FAILED = 0, 1, 2, 3
+OK, NEEDS_DESCRIPTION, LLM_FAILED, LAYOUT_FAILED, BAD_REQUEST = 0, 1, 2, 3, 4
 
 
 def packet_folder(tracker: trk.Tracker, row: dict[str, str]) -> Path:
@@ -73,19 +73,95 @@ def build_packet(tracker: trk.Tracker, profile: Profile, job_id: str, *, offline
         doc, track = result.doc, result.track
         out = result.model_output
         cover = out.get("cover_note", "")
-        ats = str((out.get("step8_ats_after") or {}).get("overall", ""))
-        review = out.get("step9_recruiter_review") or {}
-        extra = {"ats_before": str((out.get("step1_ats_before") or {}).get("overall", "")), "ats_after": ats,
-                 "shortlist_pct": str((review.get("probability_percent") or {}).get("shortlist", ""))}
-        (folder / "report.md").write_text(analyze.report_markdown(row, result, fit), encoding="utf-8")
-        (folder / "analysis.json").write_text(json.dumps({
-            "model": result.model_used, "track": track, "guard_issues": result.guard_issues,
-            "keyword_before": result.keyword_before, "keyword_after": result.keyword_after,
-            "content": result.content, "model_output": out}, indent=2), encoding="utf-8")
+        extra = _save_analysis(folder, row, result, fit)
+        ats = extra["ats_after"]
         say(f"  ATS (model estimate): {extra['ats_before'] or '-'} -> {ats or '-'}   "
             f"exact keywords: {result.keyword_before}% -> {result.keyword_after}%")
         say(f"  Rewritten bullets kept: {result.rewrites_kept}   guard notes: {len(result.guard_issues)}")
 
+    if not _write_resume_files(tracker, row, folder, doc, say):
+        return LAYOUT_FAILED
+    (folder / "answers.md").write_text(answers_markdown(profile, row, fit, cover), encoding="utf-8")
+    rel = folder.relative_to(tracker.root)
+    new_status = "packet-ready" if row["status"] == "discovered" else row["status"]
+    tracker.update(row["id"], status=new_status, output_dir=str(rel), track=track,
+                   **({"ats_score": ats} if ats else {}), **extra)
+    tracker.log(f"resume generated ({'offline' if offline else 'gemini'}, {track}) -> {rel}", row["id"])
+    say(f"\nReady in {rel}/")
+    say("  resume.pdf (1 page), resume.docx, answers.md, report.md")
+    if fit.reasons:
+        say("  Check first: " + "; ".join(fit.reasons))
+    return OK
+
+
+def revise_packet(tracker: trk.Tracker, profile: Profile, job_id: str, instruction: str, *, say=print,
+                  llm=None) -> int:
+    """Change a tailored resume the way you ask ("put the IAM bullets first"), re-check it and re-score it."""
+    row = tracker.get(job_id)
+    instruction = (instruction or "").strip()
+    if not instruction:
+        say("Say what to change, for example: \"Put the cloud project first and lead with Azure AD.\"")
+        return BAD_REQUEST
+    folder = tracker.root / row["output_dir"] if row["output_dir"] else None
+    if not folder or not (folder / "resume.pdf").exists():
+        say(f"{row['id']} has no tailored resume yet. Generate the packet first.")
+        return BAD_REQUEST
+    text = tracker.jd_text(row["id"])
+    fit = fitmod.check(profile, text, row["location"], row["role"])
+    track = row["track"] or next(iter(profile.tracks))
+    analysis = folder / "analysis.json"
+    previous = (json.loads(analysis.read_text(encoding="utf-8")) if analysis.exists()
+                else {"track": track, "content": base_content(profile, track), "model_output": {}})
+
+    from career import analyze
+    from career.llm import GeminiLLM, LLMError
+
+    try:
+        llm = llm or GeminiLLM()
+        say(f"Revising {row['id']} with Gemini: \"{instruction}\"... this takes 20-60 seconds.")
+        result = analyze.revise(profile, llm, text, previous, instruction, international=fit.abroad)
+    except LLMError as exc:
+        say(f"\nGemini error: {exc}")
+        return LLM_FAILED
+    latest = result.model_output["revisions"][-1]
+    extra = _save_analysis(folder, row, result, fit)
+    if not _write_resume_files(tracker, row, folder, result.doc, say):
+        return LAYOUT_FAILED
+    (folder / "answers.md").write_text(
+        answers_markdown(profile, row, fit, result.model_output.get("cover_note", "")), encoding="utf-8")
+    tracker.update(row["id"], **({"ats_score": extra["ats_after"]} if extra["ats_after"] else {}), **extra)
+    tracker.log(f"resume revised: \"{instruction[:80]}\" (ATS {latest['ats_before'] or '-'} -> "
+                f"{latest['ats_after'] or '-'})", row["id"])
+    for item in latest["changes_made"]:
+        say(f"  done:      {item}")
+    for item in latest["not_done"]:
+        say(f"  not done:  {item}")
+    for item in latest["guard_issues"]:
+        say(f"  reverted:  {item}")
+    say(f"  ATS (model estimate): {latest['ats_before'] or '-'} -> {latest['ats_after'] or '-'}   "
+        f"exact keywords: {latest['keyword_before']}% -> {latest['keyword_after']}%")
+    say(f"Updated {folder.relative_to(tracker.root)}/resume.pdf and resume.docx")
+    return OK
+
+
+def _save_analysis(folder: Path, row: dict[str, str], result, fit) -> dict[str, str]:
+    """Write report.md and analysis.json; return the scores to store in the tracker."""
+    from career import analyze
+
+    out = result.model_output
+    review = out.get("step9_recruiter_review") or {}
+    (folder / "report.md").write_text(analyze.report_markdown(row, result, fit), encoding="utf-8")
+    (folder / "analysis.json").write_text(json.dumps({
+        "model": result.model_used, "track": result.track, "guard_issues": result.guard_issues,
+        "keyword_before": result.keyword_before, "keyword_after": result.keyword_after,
+        "content": result.content, "model_output": out}, indent=2), encoding="utf-8")
+    return {"ats_before": str((out.get("step1_ats_before") or {}).get("overall", "")),
+            "ats_after": str((out.get("step8_ats_after") or {}).get("overall", "")),
+            "shortlist_pct": str((review.get("probability_percent") or {}).get("shortlist", ""))}
+
+
+def _write_resume_files(tracker: trk.Tracker, row: dict[str, str], folder: Path, doc, say) -> bool:
+    """Fit to one page and write the PDF and Word files. On failure, log why and leave no resume behind."""
     report = folder / "report.md"
     try:
         fitted = write_resume(doc, folder / "resume.pdf", folder / "resume.docx")
@@ -98,20 +174,10 @@ def build_packet(tracker: trk.Tracker, profile: Profile, job_id: str, *, offline
         tracker.notify("layout", f"{row['id']}: the resume does not fit on one page, so it was not saved. "
                                  "See its report.md.", row["id"])
         say(f"\nResume not saved: {exc}")
-        return LAYOUT_FAILED
+        return False
     if fitted.removed or fitted.size < MAX_SIZE:
         note = (f"Removed to fit: {', '.join(fitted.removed)}. " if fitted.removed else "") + f"Font: {fitted.size}pt."
         with report.open("a", encoding="utf-8") as f:
             f.write(f"\n## One-page fitting\n\n{note}\n")
         say(f"  One-page fitting: {note}")
-    (folder / "answers.md").write_text(answers_markdown(profile, row, fit, cover), encoding="utf-8")
-    rel = folder.relative_to(tracker.root)
-    new_status = "packet-ready" if row["status"] == "discovered" else row["status"]
-    tracker.update(row["id"], status=new_status, output_dir=str(rel), track=track,
-                   **({"ats_score": ats} if ats else {}), **extra)
-    tracker.log(f"resume generated ({'offline' if offline else 'gemini'}, {track}) -> {rel}", row["id"])
-    say(f"\nReady in {rel}/")
-    say("  resume.pdf (1 page), resume.docx, answers.md, report.md")
-    if fit.reasons:
-        say("  Check first: " + "; ".join(fit.reasons))
-    return OK
+    return True

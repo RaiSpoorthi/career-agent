@@ -25,8 +25,17 @@ def _int(settings: dict[str, str], key: str, default: int) -> int:
         return default
 
 
-def eligible(row: dict[str, str], minimum: int) -> bool:
-    return row["fit"] == "APPLY" and int(row["keyword_score"] or 0) >= minimum
+def eligible(row: dict[str, str], minimum: int, fits: tuple[str, ...] = ("APPLY",)) -> bool:
+    return row["fit"] in fits and int(row["keyword_score"] or 0) >= minimum
+
+
+def tailored_fits(settings: dict[str, str]) -> tuple[str, ...]:
+    """Which fit verdicts get a resume automatically (setting `tailor_fits`). REVIEW jobs are never auto-submitted."""
+    return ("APPLY", "REVIEW") if settings.get("tailor_fits") == "APPLY+REVIEW" else ("APPLY",)
+
+
+def _check_first(row: dict[str, str]) -> str:
+    return f"Check first: {row['notes']}. " if row["fit"] == "REVIEW" and row["notes"] else ""
 
 
 def run_once(tracker: Tracker, profile: Profile, say=print, *, discover=None, build=packet.build_packet,
@@ -54,6 +63,9 @@ def run_once(tracker: Tracker, profile: Profile, say=print, *, discover=None, bu
         found, notes = discover()
     counts = pipeline.ingest(tracker, profile, found)
     stats["found"] = counts["new"]
+    rescored = pipeline.rescore(tracker, profile)  # your current rules also apply to jobs found earlier
+    if rescored["now_skipped"]:
+        say(f"  {rescored['now_skipped']} earlier job(s) now break your rules and were skipped")
     for note in notes:
         say(f"  note: {note}")
         tracker.log(note, level="warn")
@@ -62,8 +74,11 @@ def run_once(tracker: Tracker, profile: Profile, say=print, *, discover=None, bu
 
     # ---- 2. tailor ------------------------------------------------------------------------
     say("Step 2/3  Tailoring resumes")
-    todo = sorted((r for r in tracker.rows("discovered") if eligible(r, minimum)),
-                  key=lambda r: -int(r["keyword_score"] or 0))[: _int(settings, "max_packets_per_run", 8)]
+    fits = tailored_fits(settings)
+    # APPLY jobs first, then by keyword match
+    todo = sorted((r for r in tracker.rows("discovered") if eligible(r, minimum, fits)),
+                  key=lambda r: (r["fit"] != "APPLY", -int(r["keyword_score"] or 0)))
+    todo = todo[: _int(settings, "max_packets_per_run", 8)]
     offline = settings["use_gemini"] != "on"
     for index, row in enumerate(todo):
         if index and not offline:
@@ -80,7 +95,7 @@ def run_once(tracker: Tracker, profile: Profile, say=print, *, discover=None, bu
 
     # ---- 3. apply -------------------------------------------------------------------------
     mode = settings["apply_mode"]
-    ready = [r for r in tracker.rows("packet-ready") if eligible(r, minimum)]
+    ready = [r for r in tracker.rows("packet-ready") if eligible(r, minimum, fits)]
     say(f"Step 3/3  Applying (mode: {mode})")
     if mode == "review":
         for row in ready:
@@ -89,9 +104,14 @@ def run_once(tracker: Tracker, profile: Profile, say=print, *, discover=None, bu
                       if kind in ("supported", "unsupported") else
                       "This site needs your account, so it is never automated. Open the listing and apply with "
                       "the packet.")
-            tracker.update(row["id"], status="awaiting-human", handoff_reason=reason)
+            tracker.update(row["id"], status="awaiting-human", handoff_reason=_check_first(row) + reason)
             stats["needs_you"] += 1
     elif mode == "auto":
+        for row in [r for r in ready if r["fit"] != "APPLY"]:  # a REVIEW job is never submitted for you
+            tracker.update(row["id"], status="awaiting-human",
+                           handoff_reason=_check_first(row) + "Press Take over if you still want it.")
+            stats["needs_you"] += 1
+        ready = [r for r in ready if r["fit"] == "APPLY"]
         room = _int(settings, "max_applications_per_day", 10) - tracker.submitted_today()
         if ready and room <= 0:
             say("  daily application limit reached; the rest wait for the next run")

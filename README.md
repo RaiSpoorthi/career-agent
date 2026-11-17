@@ -76,6 +76,8 @@ Every resume is built from this file and nothing else. The example shows every f
 - **`preferences`**: your job-search rules:
   - `home_country` (defaults to the country in your contact location) and `ok_locations` (places you'd work).
     Cities are built in for India. For other countries, list them in `home_places`.
+    `other_home_locations`: `review` flags jobs in other cities of your country, `skip` leaves them out.
+    Remote jobs limited to another country ("Remote - USA") are always skipped.
   - `salary_min` (annual minimum by currency: USD, GBP, EUR), `salary_min_lpa` (India: lakhs per annum) and
     `expected_salary` (your own answer for home-country jobs). All optional.
   - `max_years_required`, `needs_visa_sponsorship_abroad`, `notice_period_days`, `work_authorization`,
@@ -102,7 +104,10 @@ One pass does three things:
 
 1. **Finds jobs** on the boards in `config/sources.yaml` and in your alert emails, and scores each against your
    rules: **APPLY**, **REVIEW** (something to confirm first) or **SKIP** (breaks a hard rule).
-2. **Tailors your resume** with Gemini for each job your rules mark APPLY, inside the truthfulness guard.
+2. **Tailors your resume** with Gemini for each job your rules mark APPLY or REVIEW (best first, up to the
+   per-run limit), inside the truthfulness guard. REVIEW jobs wait under **Needs you** with the reason to check,
+   and are never submitted for you. Set "Tailor resumes automatically for" to `APPLY` on Settings to skip them.
+   Each run also re-checks jobs found earlier against your current rules.
 3. **Applies**, according to the apply mode on the Settings page:
    - `review` (the default): nothing is sent. Each job waits under **Needs you**. Press **Take over** and a
      browser opens with the form filled in and your resume attached. You check it and press Submit.
@@ -119,6 +124,19 @@ On the dashboard, open **Add job** (or **Apply to a job I found**), paste the li
 and press **Tailor resume and apply**. It is scored, a resume is tailored, and the form is opened (review mode)
 or submitted (auto mode). The job page shows the fit, keyword match, ATS estimate, matched and missing skills,
 and a preview of the tailored resume. From the terminal: `python jobs.py add --url <link> --apply`.
+
+### Changing a tailored resume
+
+On a job's page, type what you want in **Change this resume**, for example "put my internship first and start
+the headline with Azure AD", and press the button. Gemini rewrites the resume your way, the truthfulness guard
+checks every line again, and the ATS score is re-checked. You see what was done, what wasn't (anything your
+profile can't support is refused, with the reason), and the score before and after. From the terminal:
+`python jobs.py revise J0001 "put my internship first"`.
+
+### Pay
+
+Pay is read from each posting (LPA, USD, GBP or EUR) and shown in `python jobs.py list`, `show`, `digest`, and on
+the dashboard. Most postings don't state it; those show "not stated".
 
 ### The dashboard
 
@@ -153,6 +171,8 @@ python jobs.py init                 # first-time setup
 python jobs.py run [--mode auto]    # one full pass
 python jobs.py add [--apply]        # save a job (paste its description); --apply also tailors and applies
 python jobs.py apply-now J0001      # tailor (if needed) and apply to one saved job
+python jobs.py revise J0001 "..."   # change a tailored resume your way; re-checks it and the ATS score
+python jobs.py rescore              # re-check saved jobs after you change your rules
 python jobs.py apply J0001 [--track NAME] [--offline] [--international]
 python jobs.py takeover J0001       # open the filled form; you press Submit
 python jobs.py digest               # what to apply to next

@@ -9,6 +9,8 @@ The agent (does everything below in one pass):
   python jobs.py auto-apply J0001         fill and submit one application (stops if anything is unanswered)
   python jobs.py add --url URL --apply    a job you found: save it, tailor the resume, apply (per apply_mode)
   python jobs.py apply-now J0001          tailor (if needed) and apply to one saved job (per apply_mode)
+  python jobs.py revise J0001 "..."       tell it what to change in a tailored resume; it re-checks the ATS score
+  python jobs.py rescore                  re-check saved jobs after you change your rules
   python jobs.py ui                       dashboard at http://127.0.0.1:5055 (Needs you, logs, settings)
 
 Free (no AI, no internet):
@@ -85,8 +87,8 @@ def _print_match(kw: keywords.KeywordMatch, fit: fitmod.FitReport) -> None:
     if kw.partial:
         say(f"  Coursework only: {', '.join(kw.partial)}")
     say(f"  Missing:  {', '.join(kw.missing) or '-'}")
-    say(f"  Fit: {fit.verdict}  | location: {fit.location} | remote: {fit.remote} | "
-        f"sponsorship: {fit.sponsorship} | pay: {fit.salary}")
+    say(f"  Pay: {fit.salary if fit.salary != 'not stated' else 'not stated in the posting'}")
+    say(f"  Fit: {fit.verdict}  | location: {fit.location} | remote: {fit.remote} | sponsorship: {fit.sponsorship}")
     for reason in fit.reasons:
         say(f"    - {reason}")
 
@@ -135,11 +137,17 @@ def cmd_list(args) -> int:
     if not rows:
         say("No jobs yet. Add one with: python jobs.py add")
         return 0
-    say(f"{'ID':<6} {'Status':<17} {'Fit':<7} {'KW':>4} {'ATS':>4}  {'Track':<9} Role @ Company")
+    say(f"{'ID':<6} {'Status':<17} {'Fit':<7} {'KW':>4} {'ATS':>4}  {'Pay':<20} {'Location':<22} Role @ Company")
     for r in rows:
         say(f"{r['id']:<6} {r['status']:<17} {r['fit']:<7} {r['keyword_score']:>4} {r['ats_score'] or '-':>4}  "
-            f"{r['track']:<9} {r['role'][:38]} @ {r['company'][:24]}")
+            f"{_pay(r):<20} {r['location'][:22]:<22} {r['role'][:34]} @ {r['company'][:20]}")
+    if any(not r["salary"] for r in rows):
+        say("\nPay '-' = the posting doesn't state it (most don't). Ask in the first HR call.")
     return 0
+
+
+def _pay(row: dict[str, str]) -> str:
+    return (row.get("salary") or "-")[:20]
 
 
 def cmd_show(args) -> int:
@@ -147,6 +155,7 @@ def cmd_show(args) -> int:
     row = t.get(args.job_id)
     text = t.jd_text(row["id"])
     say(f"{row['id']}: {row['role']} @ {row['company']}  [{row['status']}]")
+    say(f"  Pay: {fitmod.stated_pay(text) or 'not stated in the posting'}   Location: {row['location'] or '-'}")
     say(f"  Link: {row['url'] or '-'}\n  Added: {row['added']}  Updated: {row['updated']}")
     if row["output_dir"]:
         say(f"  Files: {row['output_dir']}")
@@ -238,8 +247,8 @@ def cmd_digest(args) -> int:
             action = f"python jobs.py attach {r['id']}"
         if r["fit"] == "SKIP":
             action = f"python jobs.py status {r['id']} skipped"
-        say(f"  {r['id']} [{r['fit']:<6}] {r['keyword_score']:>3}%  {r['role'][:34]} @ {r['company'][:20]}"
-            f"  -> {action}")
+        say(f"  {r['id']} [{r['fit']:<6}] {r['keyword_score']:>3}%  pay {_pay(r):<14} {r['role'][:34]} @ "
+            f"{r['company'][:20]}  -> {action}")
     return 0
 
 
@@ -322,6 +331,22 @@ def cmd_run(args) -> int:
     return 0
 
 
+def cmd_revise(args) -> int:
+    from career.packet import revise_packet
+
+    instruction = " ".join(args.instruction) or _ask("What should change in the resume?", None)
+    return revise_packet(tracker.Tracker(), _profile(), args.job_id, instruction, say=say)
+
+
+def cmd_rescore(args) -> int:
+    from career import pipeline
+
+    counts = pipeline.rescore(tracker.Tracker(), _profile())
+    say(f"Re-checked {counts['rescored']} job(s) against your current rules; "
+        f"{counts['now_skipped']} now break a rule and were skipped. Pay updated for every job.")
+    return 0
+
+
 def cmd_apply_now(args) -> int:
     from career import agent
 
@@ -367,6 +392,10 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--apply", action="store_true", help="then tailor the resume and apply (follows apply_mode)")
     an = sub.add_parser("apply-now", help="tailor the resume for one job and apply (follows apply_mode)")
     an.add_argument("job_id")
+    rv = sub.add_parser("revise", help="tell the agent what to change in a tailored resume; it re-scores it")
+    rv.add_argument("job_id")
+    rv.add_argument("instruction", nargs="*", help='e.g. "put the cloud project first and lead with Azure AD"')
+    sub.add_parser("rescore", help="re-check saved jobs against your current rules (after editing preferences)")
 
     lst = sub.add_parser("list", help="show the tracker")
     lst.add_argument("--status", choices=tracker.STATUSES + list(tracker.LEGACY))
@@ -414,7 +443,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-COMMANDS = {"init": cmd_init, "run": cmd_run, "apply-now": cmd_apply_now,
+COMMANDS = {"init": cmd_init, "run": cmd_run, "apply-now": cmd_apply_now, "revise": cmd_revise,
+            "rescore": cmd_rescore,
             "auto-apply": cmd_auto_apply, "takeover": cmd_auto_apply,
             "discover": cmd_discover, "ingest-inbox": cmd_ingest_inbox, "attach": cmd_attach,
             "applied": cmd_applied, "ui": cmd_ui, "add": cmd_add, "list": cmd_list, "show": cmd_show,

@@ -14,6 +14,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from career import fit as fitmod
 from career import taxonomy
 from career.keywords import match
 from career.profile import ROOT, Profile
@@ -26,12 +27,13 @@ SUBMITTED = ("applied-auto", "completed-manual")
 LEGACY = {"found": "discovered", "new": "discovered", "analyzed": "packet-ready", "applied": "completed-manual"}
 FIELDS = ["id", "added", "updated", "company", "role", "location", "url", "apply_url", "track", "keyword_score",
           "ats_score", "fit", "status", "output_dir", "notes", "source", "date_applied", "ats_before",
-          "ats_after", "shortlist_pct", "dedupe_key", "handoff_reason", "apply_method", "attempts"]
+          "ats_after", "shortlist_pct", "dedupe_key", "handoff_reason", "apply_method", "attempts", "salary"]
 
 # Settings shown on the dashboard's Settings page. Values are stored as text.
 DEFAULT_SETTINGS = {
     "apply_mode": "review",          # off | review (you press Submit) | auto (agent submits)
     "min_keyword_score": "45",       # only jobs at or above this exact-keyword match are processed automatically
+    "tailor_fits": "APPLY+REVIEW",   # fits that get a resume automatically: APPLY, or APPLY+REVIEW
     "max_packets_per_run": "8",      # Gemini calls per run (free tier has daily limits)
     "gemini_gap_seconds": "12",      # pause between Gemini calls
     "max_applications_per_day": "10",
@@ -244,7 +246,7 @@ class Tracker:
             row.update({"id": job_id, "added": _now(), "updated": _now(), "company": company, "role": role,
                         "location": location, "url": url, "apply_url": apply_url, "track": track,
                         "keyword_score": str(keyword_score), "fit": fit, "status": status, "notes": notes,
-                        "source": source, "attempts": "0",
+                        "source": source, "attempts": "0", "salary": fitmod.stated_pay(text),
                         "dedupe_key": dedupe_key or url.split("?")[0].rstrip("/").lower()})
             db.execute(f"INSERT INTO jobs ({','.join(FIELDS)}) VALUES ({','.join('?' * len(FIELDS))})",
                        [row[f] for f in FIELDS])

@@ -7,6 +7,7 @@ tracker, activity log and files stay identical whichever way you use it.
 
 from __future__ import annotations
 
+import json
 import secrets
 import subprocess
 import sys
@@ -31,6 +32,9 @@ SETTING_HELP = {
                    "question is answered, and hands you the rest. off: only find jobs and tailor resumes."),
     "min_keyword_score": ("Minimum keyword match (%)", None, "Jobs below this are listed but never processed "
                           "automatically."),
+    "tailor_fits": ("Tailor resumes automatically for", ["APPLY+REVIEW", "APPLY"],
+                    "APPLY+REVIEW: also jobs with something to check first (they wait under Needs you with the "
+                    "reason, and are never submitted for you). APPLY: only jobs that meet every rule."),
     "max_packets_per_run": ("Resumes tailored per run", None, "Each one is a Gemini call. The free tier has a "
                             "daily limit."),
     "gemini_gap_seconds": ("Pause between Gemini calls (seconds)", None, ""),
@@ -92,7 +96,7 @@ textarea{width:100%;min-height:180px}form.inline{display:inline-flex;gap:8px;ali
 .warn{color:var(--review)}.run{color:var(--accent)}label.set{display:grid;grid-template-columns:300px 160px 1fr;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
 textarea.code{font:12px/1.5 ui-monospace,Consolas,monospace;min-height:260px}
 .kw span{margin:0 4px 4px 0}.note{font-size:12px;color:var(--muted)}
-.g3{grid-template-columns:repeat(3,1fr)}.pick h3{font-size:17px;margin:6px 0 2px}.pick .learn{margin-top:10px;font-size:13px}
+.g3{grid-template-columns:repeat(3,1fr)}.g5{grid-template-columns:repeat(5,1fr)}.pick h3{font-size:17px;margin:6px 0 2px}.pick .learn{margin-top:10px;font-size:13px}
 .bar{height:6px;background:var(--chip);border-radius:99px;overflow:hidden;margin:6px 0 2px}.bar span{display:block;height:100%;background:var(--accent);border-radius:99px}
 .skill{display:grid;grid-template-columns:minmax(150px,1fr) minmax(130px,.8fr) 2fr;gap:16px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
 .skill:last-child{border-bottom:0}.skill b{font-size:14px}.skill .bar{margin:0 0 2px}
@@ -102,7 +106,7 @@ textarea.code{font:12px/1.5 ui-monospace,Consolas,monospace;min-height:260px}
 details summary{cursor:pointer;color:var(--accent);font-weight:600}details .chip{margin:8px 6px 0 0}
 label.field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}label.field input{width:100%}
 iframe.preview{width:100%;height:760px;border:1px solid var(--line);border-radius:8px;background:#fff}
-@media(max-width:800px){.g4,.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr}.skill{grid-template-columns:1fr}
+@media(max-width:800px){.g4,.g2,.g5{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr}.skill{grid-template-columns:1fr}
 .grid[style*="2fr 1fr"]{grid-template-columns:1fr!important}}
 </style></head><body>
 <header><b>Career Agent</b>
@@ -144,7 +148,7 @@ document.getElementById('tasklog').textContent='\n'+r.tail;if(!r.running){clearI
 <td class="num">{{ r.ats_after or '-' }}<div class="note">ATS</div></td><td class="num">{{ r.shortlist_pct or '-' }}{{ '%' if r.shortlist_pct }}<div class="note">shortlist est.</div></td></tr>{% endfor %}</table>
 {% else %}<div class="muted">No packets waiting. Pick a job below and press "Generate packet".</div>{% endif %}</div>
 <div class="card"><h2>Best new matches</h2>
-{% if best %}<table>{% for r in best %}<tr><td><a href="{{ url_for('job', job_id=r.id) }}">{{ r.role }}</a><div class="note">{{ r.company }} · {{ r.location }}</div></td>
+{% if best %}<table>{% for r in best %}<tr><td><a href="{{ url_for('job', job_id=r.id) }}">{{ r.role }}</a><div class="note">{{ r.company }} · {{ r.location }} · pay {{ r.salary or 'not stated' }}</div></td>
 <td><span class="chip {{ r.fit }}">{{ r.fit or '?' }}</span></td><td class="num">{{ r.keyword_score }}%</td></tr>{% endfor %}</table>
 {% else %}<div class="muted">Nothing new. Add companies in config/sources.yaml, drop alert emails in inbox/, or add a job by hand.</div>{% endif %}</div>
 </div>
@@ -157,7 +161,7 @@ document.getElementById('tasklog').textContent='\n'+r.tail;if(!r.running){clearI
     "needs.html": """{% extends 'base.html' %}{% block body %}
 <h1>Needs you</h1><div class="muted" style="margin-bottom:16px">Applications the agent could not finish alone. "Take over" opens the form in a browser on this computer with everything it can answer already filled in; you finish and press Submit.</div>
 {% for r in rows %}<div class="card"><div class="row" style="justify-content:space-between">
-<div><a href="{{ url_for('job', job_id=r.id) }}"><b>{{ r.role }}</b></a> · {{ r.company }} <span class="note">· {{ r.location }} · {{ r.id }} · keyword {{ r.keyword_score }}%</span>
+<div><a href="{{ url_for('job', job_id=r.id) }}"><b>{{ r.role }}</b></a> · {{ r.company }} <span class="note">· {{ r.location }} · pay {{ r.salary or 'not stated' }} · {{ r.id }} · keyword {{ r.keyword_score }}%</span>
 <div class="warn" style="margin-top:4px">{{ r.handoff_reason or 'Waiting for you.' }}</div></div>
 <div class="row">
 {% if r.automatable %}<form method="post" action="{{ url_for('takeover', job_id=r.id) }}" class="inline"><button>Take over</button></form>
@@ -197,24 +201,26 @@ document.getElementById('tasklog').textContent='\n'+r.tail;if(!r.running){clearI
 <select name="fit"><option value="">Any fit</option>{% for f in ['APPLY','REVIEW','SKIP'] %}<option {{ 'selected' if f==fit }}>{{ f }}</option>{% endfor %}</select>
 <button class="ghost">Filter</button></form></div>
 <div class="card" style="padding:0;overflow-x:auto"><table>
-<tr><th>ID</th><th>Role · Company</th><th>Source</th><th>Fit</th><th>Keywords</th><th>ATS before→after</th><th>Shortlist est.</th><th>Status</th><th>Applied on</th><th>Resume</th></tr>
+<tr><th>ID</th><th>Role · Company</th><th>Pay</th><th>Source</th><th>Fit</th><th>Keywords</th><th>ATS before→after</th><th>Shortlist est.</th><th>Status</th><th>Applied on</th><th>Resume</th></tr>
 {% for r in rows %}<tr><td><a href="{{ url_for('job', job_id=r.id) }}">{{ r.id }}</a></td>
 <td><a href="{{ url_for('job', job_id=r.id) }}">{{ r.role }}</a><div class="note">{{ r.company }} · {{ r.location }}</div></td>
+<td>{% if r.salary %}<b>{{ r.salary }}</b>{% else %}<span class="note">not stated</span>{% endif %}</td>
 <td class="note">{{ r.source or 'manual' }}</td><td><span class="chip {{ r.fit }}">{{ r.fit or '?' }}</span></td>
 <td class="num">{{ r.keyword_score }}%</td><td class="num">{{ r.ats_before or '-' }} → {{ r.ats_after or r.ats_score or '-' }}</td>
 <td class="num">{{ r.shortlist_pct ~ '%' if r.shortlist_pct else '-' }}</td><td><span class="chip">{{ r.status }}</span></td>
 <td>{{ r.date_applied or '-' }}</td>
 <td>{% if r.output_dir %}<a href="{{ url_for('packet_file', job_id=r.id, name='resume.pdf') }}" target="_blank">PDF</a>{% else %}-{% endif %}</td></tr>
-{% else %}<tr><td colspan="10" class="muted">No jobs match.</td></tr>{% endfor %}</table></div>
-<div class="note">ATS and shortlist numbers are Gemini's estimates, not real probabilities. Keyword % is an exact-match count done on your computer.</div>
+{% else %}<tr><td colspan="11" class="muted">No jobs match.</td></tr>{% endfor %}</table></div>
+<div class="note">Pay is read from the posting; most don't state it. ATS and shortlist numbers are Gemini's estimates, not real probabilities. Keyword % is an exact-match count done on your computer.</div>
 {% endblock %}""",
 
     "job.html": """{% extends 'base.html' %}{% block title %}{{ r.role }}{% endblock %}{% block body %}
 <div class="row" style="justify-content:space-between"><div><h1>{{ r.role }}</h1>
 <div class="muted">{{ r.company }} · {{ r.location or 'location not stated' }} · {{ r.id }} · from {{ r.source or 'manual' }} · added {{ r.added }}</div></div>
 {% if r.url %}<a class="btn ghost" href="{{ r.url }}" target="_blank" rel="noopener">Open job listing ↗</a>{% endif %}</div>
-<div class="grid g4" style="margin-top:16px">
+<div class="grid g5" style="margin-top:16px">
 <div class="card stat"><span>Fit</span><b><span class="chip {{ r.fit }}" style="font-size:16px">{{ r.fit or '?' }}</span></b></div>
+<div class="card stat"><span>Pay</span><b>{% if r.salary %}{{ r.salary }}{% else %}<span class="muted" style="font-size:15px">not stated</span>{% endif %}</b></div>
 <div class="card stat"><span>Keyword match</span><b>{{ r.keyword_score }}%</b></div>
 <div class="card stat"><span>ATS before → after</span><b>{{ r.ats_before or '-' }} → {{ r.ats_after or r.ats_score or '-' }}</b></div>
 <div class="card stat"><span>Shortlist (estimate)</span><b>{{ r.shortlist_pct ~ '%' if r.shortlist_pct else '-' }}</b></div>
@@ -238,7 +244,21 @@ document.getElementById('tasklog').textContent='\n'+r.tail;if(!r.running){clearI
 </div>
 <p class="note">Application link: {{ link_help }} Apply mode is <b>{{ mode }}</b>{% if mode == 'review' %}: the form opens filled in and you press Submit{% elif mode == 'auto' %}: it submits only when every required question is answered{% else %}: nothing is opened{% endif %}.</p>
 </div>
-{% if 'resume.pdf' in files %}<div class="card"><h2>Tailored resume</h2>
+{% if 'resume.pdf' in files %}<div class="card"><h2>Change this resume</h2>
+<div class="note" style="margin-bottom:8px">Tell the agent what to change, in your own words. It rewrites the resume, the
+truthfulness guard checks every line, and the ATS score is checked again. It can reorder, reword, choose bullets and skills,
+and change the headline. It can't add anything your profile doesn't have, and it tells you when it skips part of a request.</div>
+<form method="post" action="{{ url_for('revise', job_id=r.id) }}"><textarea name="instruction" required style="min-height:90px"
+placeholder="e.g. Put my internship first, start the headline with Azure AD and access reviews, and use fewer project bullets."></textarea>
+<p><button>Apply my changes and re-check ATS</button></p></form>
+{% if revisions %}<h2 style="margin-top:8px">What you asked for</h2>
+{% for rev in revisions|reverse %}<div style="border-top:1px solid var(--line);padding:10px 0">
+<div><b>“{{ rev.instruction }}”</b> <span class="note">· ATS {{ rev.ats_before or '-' }} → <b>{{ rev.ats_after or '-' }}</b> · exact keywords {{ rev.keyword_before }}% → {{ rev.keyword_after }}%</span></div>
+{% for c in rev.changes_made %}<div class="note">✓ {{ c }}</div>{% endfor %}
+{% for c in rev.not_done %}<div class="note warn">✗ Not done: {{ c }}</div>{% endfor %}
+{% for c in rev.guard_issues %}<div class="note warn">↺ Reverted by the guard: {{ c }}</div>{% endfor %}
+</div>{% endfor %}{% endif %}</div>
+<div class="card"><h2>Tailored resume</h2>
 <iframe class="preview" src="{{ url_for('packet_file', job_id=r.id, name='resume.pdf') }}" title="Tailored resume preview"></iframe></div>{% endif %}
 {% endif %}
 
@@ -431,10 +451,25 @@ def create_app(root: Path = ROOT) -> Flask:
         folder = root / r["output_dir"] if r["output_dir"] else None
         files = sorted(f for f in PACKET_FILES if folder and (folder / f).exists())
         kind = host_kind(r["apply_url"] or r["url"])
+        revisions = []
+        if folder and (folder / "analysis.json").exists():
+            try:
+                saved = json.loads((folder / "analysis.json").read_text(encoding="utf-8"))
+                revisions = (saved.get("model_output") or {}).get("revisions") or []
+            except (ValueError, OSError):
+                pass
         return render_template("job.html", active="jobs", r=r, jd=jd, kw=kw, statuses=STATUSES, files=files,
+                               revisions=revisions,
                                submitted=SUBMITTED, history=list(reversed(tracker.events(40, job_id=r["id"]))),
                                automatable=kind in ("supported", "unsupported"), link_help=LINK_HELP[kind],
                                today=datetime.now().strftime("%Y-%m-%d"))
+
+    @app.post("/job/<job_id>/revise")
+    def revise(job_id):
+        instruction = request.form.get("instruction", "").strip()
+        if instruction:
+            start(f"Revise {job_id}", "revise", job_id, instruction)
+        return redirect(url_for("job", job_id=job_id))
 
     @app.post("/job/<job_id>/apply-now")
     def apply_now(job_id):

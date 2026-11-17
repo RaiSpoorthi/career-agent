@@ -133,6 +133,38 @@ def ingest(tracker: Tracker, profile: Profile, jobs: list[sources.Job]) -> dict[
     return counts
 
 
+RESCORED = ("discovered", "packet-ready", "awaiting-human")
+
+
+def rescore(tracker: Tracker, profile: Profile) -> dict[str, int]:
+    """Re-apply your current rules to saved jobs, e.g. after you change preferences in baseline.yaml.
+
+    Updates fit, keyword score, notes and pay. A job not yet worked on ("discovered") that now breaks a
+    rule is marked skipped; jobs already tailored or waiting for you keep their status (the new
+    warning shows on them). Jobs you added yourself are never auto-skipped. Pay is filled in for every job.
+    """
+    counts = {"rescored": 0, "now_skipped": 0}
+    for row in tracker.rows():
+        path = tracker.jd_dir / f"{row['id']}.txt"
+        if not path.exists() or row["status"] == "needs-description":
+            continue
+        text = path.read_text(encoding="utf-8")
+        changes = {"salary": fitmod.stated_pay(text)}
+        if row["status"] in RESCORED:
+            kw = keywords.match(profile, text)
+            report = fitmod.check(profile, text, row["location"], row["role"])
+            changes.update(keyword_score=str(kw.score), fit=report.verdict, notes="; ".join(report.reasons))
+            if row["status"] == "discovered":
+                changes["track"] = kw.track
+                if report.verdict == fitmod.SKIP and row["source"] != "manual":
+                    changes["status"] = "skipped"
+                    counts["now_skipped"] += 1
+            counts["rescored"] += 1
+        if any(row[k] != v for k, v in changes.items()):
+            tracker.update(row["id"], **changes)
+    return counts
+
+
 def add_manual(tracker: Tracker, profile: Profile, *, url: str, text: str, company: str, role: str,
                location: str = "") -> tuple[dict[str, str], bool]:
     """Save a job you found yourself and score it. Returns (row, is_new); a link saved before is reused.
@@ -162,7 +194,7 @@ def attach_description(tracker: Tracker, profile: Profile, job_id: str, text: st
     kw = keywords.match(profile, text)
     report = fitmod.check(profile, text, row["location"], row["role"])
     changes = {"track": kw.track, "keyword_score": str(kw.score), "fit": report.verdict,
-               "notes": "; ".join(report.reasons)}
+               "notes": "; ".join(report.reasons), "salary": fitmod.stated_pay(text)}
     if not row["location"]:
         changes["location"] = report.location
     if row["status"] == "needs-description":

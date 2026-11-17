@@ -38,6 +38,7 @@ SPONSOR_NO = [r"(no|not|unable to|cannot|can't|do not|don't|will not|won't)\s+(p
               r"security clearance", r"must be (a )?(us|u\.s\.|uk|eu) (citizen|national)"]
 
 REMOTE = re.compile(r"(?<![\w])(remote|work from home|wfh|anywhere)(?![\w])", re.I)
+WORLDWIDE = re.compile(r"(?<![\w])(anywhere|worldwide|global|globally|international)(?![\w])", re.I)
 LPA = re.compile(r"(\d+(?:\.\d+)?)\s*(?:-|to|–)?\s*(\d+(?:\.\d+)?)?\s*(?:lpa|lakhs?|l\.p\.a)", re.I)
 MONEY = re.compile(r"(?P<cur>[$£€])\s?(?P<a>\d{2,3}(?:,\d{3})+|\d{2,3}\s?[kK])"
                    r"(?:\s*(?:-|to|–)\s*[$£€]?\s?(?P<b>\d{2,3}(?:,\d{3})+|\d{2,3}\s?[kK]))?")
@@ -75,6 +76,27 @@ def _has(text: str, word: str) -> bool:
 def _amount(raw: str) -> int:
     raw = raw.replace(",", "").replace(" ", "")
     return int(raw[:-1]) * 1000 if raw[-1] in "kK" else int(raw)
+
+
+def parse_pay(text: str) -> tuple[str, str | None, float]:
+    """The pay a posting states: (label, "LPA"/"USD"/"GBP"/"EUR", top of the range), or ("not stated", None, 0)."""
+    lpa = LPA.search(text or "")
+    if lpa:
+        low, high = float(lpa.group(1)), float(lpa.group(2) or lpa.group(1))
+        return (f"{low:g}-{high:g} LPA" if high != low else f"{low:g} LPA"), "LPA", high
+    money = MONEY.search(text or "")
+    if money:
+        cur = CUR_CODE[money.group("cur")]
+        low = _amount(money.group("a"))
+        high = _amount(money.group("b")) if money.group("b") else low
+        return (f"{cur} {low:,}-{high:,}" if high != low else f"{cur} {low:,}"), cur, high
+    return "not stated", None, 0
+
+
+def stated_pay(text: str) -> str:
+    """Pay label for the tracker; empty when the posting doesn't say."""
+    label, cur, _ = parse_pay(text)
+    return label if cur else ""
 
 
 def salary_floors(profile: Profile) -> dict[str, int]:
@@ -117,6 +139,7 @@ def check(profile: Profile, text: str, location_hint: str = "", title: str = "")
     if us_is_foreign and re.search(r"(?<![\w])(US|U\.S\.)(?![\w])", blob):  # case-sensitive: skip "us"
         abroad.append("us")
     hint = location_hint.lower()
+    hint_abroad: list[str] = []
     if hint:  # an explicit location wins over places mentioned in the description body
         home = [p for p in home_places if _has(hint, p)] or home
         hint_abroad = [p for p in foreign if _has(hint, p)]
@@ -126,14 +149,23 @@ def check(profile: Profile, text: str, location_hint: str = "", title: str = "")
     ok_local = any(p in ok_locations for p in home)
     report.abroad = bool(abroad) and not ok_local
     report.location = ", ".join(sorted(set(home + abroad))) or ("remote" if report.remote else "not stated")
+    # "Remote - USA": remote, but only for people living in that country. Judged on the location
+    # field alone, so a description that merely mentions an office abroad doesn't count.
+    country_only_remote = (report.remote and bool(hint_abroad) and not WORLDWIDE.search(hint)
+                           and not any(_has(hint, p) for p in home_places))
 
-    if report.remote or ok_local:
+    if country_only_remote:
+        report.downgrade(SKIP, f"Remote only within {', '.join(sorted(set(hint_abroad)))}: "
+                               f"not open to people based in {country}")
+    elif report.remote or ok_local:
         pass
     elif report.abroad:
         report.reasons.append(f"Based outside {country}: needs visa sponsorship")
     elif home:
         wanted = "/".join(p.title() for p in ok_locations) or "your locations"
-        report.downgrade(REVIEW, f"Located in {', '.join(home)}, not {wanted}")
+        # preferences.other_home_locations: "review" (default) flags these, "skip" leaves them out
+        verdict = SKIP if prefs.get("other_home_locations") == "skip" else REVIEW
+        report.downgrade(verdict, f"Located in {', '.join(home)}, not {wanted}")
     else:
         report.downgrade(REVIEW, "Location not stated")
 
@@ -142,7 +174,9 @@ def check(profile: Profile, text: str, location_hint: str = "", title: str = "")
         report.sponsorship = "no"
     elif any(re.search(p, lowered) for p in SPONSOR_YES):
         report.sponsorship = "yes"
-    if report.abroad and report.remote:
+    if country_only_remote:
+        pass
+    elif report.abroad and report.remote:
         report.downgrade(REVIEW, f"Remote role at a foreign employer: confirm they hire people based in {country}")
     elif report.abroad and prefs.get("needs_visa_sponsorship_abroad"):
         if report.sponsorship == "no":
@@ -151,21 +185,16 @@ def check(profile: Profile, text: str, location_hint: str = "", title: str = "")
             report.downgrade(REVIEW, "Abroad and sponsorship is not mentioned: confirm before applying")
 
     # ---- salary ----
-    lpa = LPA.search(blob)
-    money = MONEY.search(blob)
+    label, cur, high = parse_pay(blob)
     lpa_floor = lpa_salary_floor(profile)
-    if lpa:
-        low, high = float(lpa.group(1)), float(lpa.group(2) or lpa.group(1))
-        report.salary = f"{low:g}-{high:g} LPA" if high != low else f"{low:g} LPA"
+    if cur == "LPA":
+        report.salary = label
         if lpa_floor:
             report.salary_ok = high >= lpa_floor
             if not report.salary_ok:
                 report.downgrade(SKIP, f"Pay {report.salary} is below your {lpa_floor} LPA floor")
-    elif money:
-        cur = CUR_CODE[money.group("cur")]
-        low = _amount(money.group("a"))
-        high = _amount(money.group("b")) if money.group("b") else low
-        report.salary = f"{cur} {low:,}-{high:,}" if high != low else f"{cur} {low:,}"
+    elif cur:
+        report.salary = label
         floor = salary_floors(profile).get(cur)
         if floor and high < 5000:  # hourly/monthly figures: don't judge
             report.salary_ok = None
