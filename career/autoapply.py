@@ -196,7 +196,10 @@ def fill_form(page, rules: list[ans.Rule], resume: Path, tick_consent: bool) -> 
             pass
         page.wait_for_timeout(800)
 
-    for f in page.evaluate(COLLECT_JS):
+    fields = page.evaluate(COLLECT_JS)
+    # A separate country-code box gets "+91", so the phone box then gets the number alone.
+    split_phone = any((r := ans.answer_for(rules, f.get("label") or "")) and r.key == "phone_code" for f in fields)
+    for f in fields:
         label = (f.get("label") or "").strip() or f.get("name", "") or "(unlabelled field)"
         target = page.locator(f'[data-ca="{f["idx"]}"]')
         done = False
@@ -220,7 +223,8 @@ def fill_form(page, rules: list[ans.Rule], resume: Path, tick_consent: bool) -> 
                 rule = ans.answer_for(rules, label)
                 if rule and f["kind"] == "text":
                     if rule.key != "cover" or f.get("big"):
-                        target.fill(rule.value)
+                        target.fill(rule.alts[0] if rule.key == "phone" and split_phone and rule.alts
+                                    else rule.value)
                         done = True
                 elif rule and f["kind"] in ("select", "radio"):
                     choice = ans.pick_answer([o["text"] for o in f["options"]], rule)

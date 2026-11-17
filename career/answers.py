@@ -21,6 +21,9 @@ from career.profile import Profile, personal_file
 ANSWERS_FILE = "config/answers.yaml"
 CONSENT = re.compile(r"privacy|consent|i agree|i acknowledge|^acknowledge|i have read|terms|data protection|gdpr",
                      re.I)
+# Cities that forms list under another name too, so a dropdown search can find either.
+CITY_ALIASES = {"bengaluru": "Bangalore", "bangalore": "Bengaluru", "mumbai": "Bombay", "chennai": "Madras",
+                "kolkata": "Calcutta", "gurugram": "Gurgaon", "gurgaon": "Gurugram"}
 # "How did you hear about us" options name the company's own site in many ways.
 CAREERS_SITE = ("Company careers page", "Careers Website", "Company Website", "Careers Page", "Career Site",
                 "Company Career Site", "Website")
@@ -57,6 +60,10 @@ def build(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str
     edu, now = data["education"][0], data["experience"][0]
     heard = {"linkedin-alert": "LinkedIn", "naukri-alert": "Naukri"}.get(job.get("source", ""),
                                                                         "Company careers page")
+    country = home_country(profile)
+    city = c["location"].split(",")[0].strip()
+    code_match = re.match(r"\s*(\+\d{1,4})[\s-]*(.*)", c["phone"])
+    code, national = (code_match.group(1), code_match.group(2).strip()) if code_match else ("", c["phone"])
     rules: list[tuple[str, str, str]] = []
 
     # Your own answers come first so they can override anything below.
@@ -69,6 +76,8 @@ def build(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str
         ("last_name", r"last name|surname|family name", last),
         ("preferred_name", r"preferred (first )?name|what should we call you", first),
         ("email", r"e-?mail", c["email"]),
+        # Before "phone" and "country": "Phone country code" is neither the number nor the country.
+        ("phone_code", r"country code|dial(l?ing)? code|phone code|calling code|\bisd\b", code),
         ("phone", r"phone|mobile|contact number", c["phone"]),
         ("linkedin", r"linkedin", c["linkedin"]),
         ("github", r"github", c["github"]),
@@ -89,7 +98,8 @@ def build(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str
         ("degree", r"degree|qualification|field of study|discipline|major", edu["degree"]),
         ("company", r"current (company|employer|organi[sz]ation)|^company$|^employer$|^org", now["org"]),
         ("title", r"current (job )?title|current (role|position|designation)|^title$|job title", now["title"]),
-        ("country", r"^country|country of residence|which country", home_country(profile)),
+        ("country", r"^country|country of residence|which country", country),
+        ("city", r"^city\b|current city|city of residence|which city", city),
         ("location", r"location|city|where are you (based|located)|current address", c["location"]),
         ("full_name", r"full name|legal name|your name|^name$|^name\b", c["name"]),
     ]
@@ -98,7 +108,12 @@ def build(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str
                                r"additional information|anything else|tell us about yourself", cover_note))
     # A rule with nothing to say (e.g. no portfolio) is left out, so that question stays unanswered
     # instead of being filled with something else.
-    alts = {"heard": CAREERS_SITE[1:] if heard == CAREERS_SITE[0] else ()}
+    other_city = (CITY_ALIASES[city.lower()],) if city.lower() in CITY_ALIASES else ()
+    alts = {"heard": CAREERS_SITE[1:] if heard == CAREERS_SITE[0] else (),
+            "phone_code": (f"{country} ({code})", f"{country} {code}", country),
+            "phone": (national,),  # the number alone, for forms with a separate country-code field
+            "city": other_city,
+            "location": tuple(f"{a}, {country}" for a in other_city)}
     return [Rule(key, re.compile(pattern, re.I), value, alts.get(key, ())) for key, pattern, value in rules
             if str(value).strip()]
 

@@ -311,6 +311,12 @@ PAGES = {
     "/captcha": FORM.replace("EXTRA", '<iframe src="/recaptcha/api2/bframe" width="300" height="400"></iframe>'),
     "/consent": FORM.replace("EXTRA", '<label><input type="checkbox" name="ok" required> I agree to the privacy '
                                       'policy *</label>'),
+    "/split": FORM.replace("EXTRA", """
+<label for="cc">Phone country code *</label><select id="cc" name="cc" required><option value="">Select...</option>
+<option>United States (+1)</option><option>India (+91)</option></select>
+<label for="city">City *</label><input id="city" name="city" required>
+<label for="ctry">Country *</label><select id="ctry" name="ctry" required><option value="">Select...</option>
+<option>Indonesia</option><option>India</option></select>"""),
     # Like Greenhouse: a hidden phone-code list that also uses role=option, a dropdown that opens on click with
     # a hidden twin input for validation, a tick-the-source question, and a "source of right to work" question.
     "/dropdowns": FORM.replace("EXTRA", """
@@ -418,6 +424,22 @@ def test_dropdowns_and_source_question_are_answered_without_guessing(browser_job
     # so it is the only thing left for you.
     assert result.outcome == "handoff" and received == []
     assert result.unresolved == ["What is the source of your right to work where this role is listed? *"]
+
+
+def test_country_code_city_and_country_boxes_are_filled_from_the_profile(browser_job, profile):
+    t, make, go, received = browser_job
+    assert go(make("/split")).outcome == "submitted"
+    [data] = received
+    assert data["cc"] == "India (+91)" and data["phone"] == profile.contact["phone"].removeprefix("+91").strip()
+    assert data["city"] == profile.contact["location"].split(",")[0] and data["ctry"] == "India"
+
+
+def test_city_has_its_other_name_for_dropdowns(profile):
+    rules = ans.build(profile, {"source": ""}, fitmod.check(profile, "", "Bengaluru", "Analyst"), extra={})
+    city = ans.answer_for(rules, "City")
+    assert city.key == "city" and city.alts == ("Bangalore",)
+    assert ans.pick_answer(["Bangalore, Karnataka", "Delhi"], city) == 0
+    assert ans.answer_for(rules, "Phone country code").value == "+91"
 
 
 def test_consent_box_is_ticked_only_when_you_allow_it(browser_job):
