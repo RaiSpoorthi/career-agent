@@ -12,32 +12,52 @@
 # Find the name in the company's careers-page address. A wrong name only produces a
 # "note:" line for that company; the others still run.
 
-# A listing is kept only if its title contains one of these...
-title_keywords: [security, identity, iam, cloud, soc, analyst, engineer, developer, software, devops, data,
-                 support, network, implementation, product]
-# ...and none of these whole words (roles above entry level, or outside your field).
+# A listing is kept only if its title contains one of these phrases (security, IAM, SOC, support, software, data)...
+title_keywords: [security, cyber, identity, iam, access management, soc, threat, vulnerability, incident, cloud,
+                 devops, sre, site reliability, infrastructure, network, platform engineer, software engineer,
+                 software developer, development engineer, developer, sde, backend, frontend, full stack,
+                 support engineer, technical support, support associate, customer success engineer, solutions engineer,
+                 implementation, integration, technical services, operations engineer, escalation engineer,
+                 data analyst, business intelligence, it analyst, it support, systems engineer, graduate, trainee,
+                 associate engineer]
+# ...and none of these whole words (above entry level, or outside your field).
 exclude_title_keywords: [senior, sr, staff, principal, lead, manager, director, head, vp, architect, distinguished,
-                         sales, account, marketing, recruiter, counsel, finance, designer, "ii", "iii", "iv"]
+                         sales, seller, account, accountant, accounting, billing, payroll, benefits, tax, legal,
+                         counsel, real estate, marketing, recruiter, recruiting, talent, people, finance, designer, ux,
+                         content, intern, internship, "ii", "iii", "iv"]
 # ...and its location mentions one of these (or gives no location). Remove this line to keep every location.
 locations: [india, bengaluru, bangalore, remote, anywhere, worldwide, apac]
 
 greenhouse:
-  # Checked by hand (Nov 2026): each board URL below was loaded and had live listings
-  # matching the keywords. If a company stops using Greenhouse, discover() will just
-  # get a 404 for that one board and skip it -- it won't break the others.
-  - {board: postman, company: Postman}                           # API security, IAM squad, Bengaluru/Hyderabad roles
-  - {board: zscaler, company: Zscaler}                           # cloud security / zero trust, heavy Bangalore hiring
-  - {board: cloudflare, company: Cloudflare}                      # IAM, product security, Bengaluru team
-  - {board: wizinc, company: Wiz}                                 # cloud security (CNAPP), mostly remote/Tel Aviv
-  - {board: innovaccer, company: Innovaccer}                      # healthtech SaaS, Noida, SDE roles
-  - {board: razorpaysoftwareprivatelimited, company: Razorpay}    # fintech, Bengaluru, note the long board slug
+  # Checked on 2026-11-17 through each company's public job feed, with these filters and a 2-years-max rule:
+  # every board below was live and had matching Bengaluru / remote-India roles that day.
+  - {board: okta, company: Okta}                         # identity company: developer support, solution engineering
+  - {board: zscaler, company: Zscaler}                   # zero trust: support associate / escalation roles, Bengaluru
+  - {board: rubrik, company: Rubrik}                     # data security, Bengaluru engineering
+  - {board: mongodb, company: MongoDB}                   # cloud operations, technical services
+  - {board: gitlab, company: GitLab}                     # all-remote: support and customer success engineering
+  - {board: purestorage, company: Pure Storage}          # Bengaluru: BI analyst, technical services engineers
+  - {board: samsara, company: Samsara}                   # Security Operations Engineer I, support engineering
+  - {board: twilio, company: Twilio}                     # support engineering, Bengaluru
+  - {board: dropbox, company: Dropbox}                   # infrastructure / backend software engineering
+  - {board: hackerrank, company: HackerRank}             # Bengaluru: forward-deployed / software engineering
+  - {board: groww, company: Groww}                       # fintech, Bengaluru
+  - {board: smartsheet, company: Smartsheet}             # Bengaluru hybrid software engineering
+  - {board: datadog, company: Datadog}                   # customer success / support
+  - {board: databricks, company: Databricks}             # Bengaluru engineering
+  - {board: elastic, company: Elastic}                   # remote engineering
+  - {board: stripe, company: Stripe}                     # Bengaluru engineering and operations
+  - {board: coinbase, company: Coinbase}                 # India engineering (remote)
+  # Checked and dropped (no matching roles that day): Cloudflare, Wiz, Razorpay, Netskope, Druva, Sumo Logic,
+  # HighRadius. Board names that no longer exist: postman, innovaccer.
 
 lever:
+  # Lever's job feed was down on 2026-11-17, so no new Lever companies could be checked; these two worked earlier.
   - {site: cred, company: CRED}          # fintech, Bengaluru
-  - {site: zeta, company: Zeta}          # banking tech, has a Cloud & Product Security team, Bengaluru/Hyderabad
+  - {site: zeta, company: Zeta}          # banking tech, Cloud & Product Security team, Bengaluru/Hyderabad
 
-ashby: []
-# Example:  - {board: examplecompany, company: Example Co}
+ashby:
+  - {board: sarvam, company: Sarvam AI}  # Bengaluru AI company: platform, frontend, data roles
 
 recruitee: []
 # Example:  - {site: examplecompany, company: Example Co}

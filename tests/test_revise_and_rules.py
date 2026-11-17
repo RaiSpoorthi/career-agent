@@ -54,6 +54,37 @@ def test_open_remote_is_not_skipped(profile, location):
     assert fit.check(profile, "Engineer. 1 year of experience.", location).verdict != fit.SKIP
 
 
+@pytest.mark.parametrize("ask,lenient,strict", [("0-2 years of experience", "APPLY", "APPLY"),
+                                                 ("3+ years of experience", "REVIEW", "SKIP"),
+                                                 ("Minimum 8-year experience", "SKIP", "SKIP")])
+def test_experience_strict_skips_stretch_jobs(profile, ask, lenient, strict):
+    job = f"Analyst in Bengaluru. {ask}."
+    assert fit.check(with_prefs(profile, experience_strict=False), job, "Bengaluru").verdict == lenient
+    assert fit.check(with_prefs(profile, experience_strict=True), job, "Bengaluru").verdict == strict
+
+
+@pytest.mark.parametrize("text,years", [
+    ("Minimum 8-year experience working with networks", 8), ("2+ years’ experience in a client-facing role", 2),
+    ("4+ years of data analytics or BI experience", 4), ("BS/MS with 8+ years of software testing/SDET experience", 8),
+    ("Cloud Operations engineer (at least 8 years)", 8), ("Experience: 3+ years in a Technical Support role", 3),
+    ("2+ years of relevant work experience", 2), ("5–9 years in DevOps, platform or security engineering", 5),
+    ("4–6 years of building and operating backend systems", 4), ("0-2 years of experience", 0),
+    ("We have been building for over 20 years in the industry", None), ("Founded 15 years ago in Pune", None),
+])
+def test_experience_phrasings(profile, text, years):
+    assert fit.check(profile, f"Engineer. {text}.", "Bengaluru").years_required == years
+
+
+@pytest.mark.parametrize("title,senior", [("SDE2 - Full Stack", True), ("SDE3, Infrastructure", True),
+                                          ("Intermediate Backend Engineer", True), ("Software Engineer II", True),
+                                          ("Technical Support Expert 2", True),
+                                          ("Security Operations Engineer I", False), ("Software Engineer", False),
+                                          ("Billing Operations Analyst 1", False)])
+def test_title_levels(profile, title, senior):
+    verdict = fit.check(profile, "Role in Bengaluru.", "Bengaluru", title).verdict
+    assert (verdict == fit.SKIP) == senior
+
+
 # ---- form answers: portfolio --------------------------------------------------------------------------
 def test_portfolio_comes_from_profile_never_from_github(profile):
     from career import answers as ans

@@ -263,7 +263,8 @@ preferences:
     - SOC Analyst
     - Cloud Security Engineer
     - Software Engineer (entry level)
-  max_years_required: 2          # jobs asking for more get flagged as a stretch
+  max_years_required: 2          # jobs asking for more get flagged as a stretch (up to +2 years), then skipped
+  experience_strict: false       # true: skip every job asking for more than max_years_required
   home_country: India            # jobs elsewhere count as "abroad"
   # home_places: [berlin, munich, hamburg, germany]   # cities in your home country (built in for India)
   ok_locations: [bengaluru, bangalore, remote]   # home-country places you are happy to work in

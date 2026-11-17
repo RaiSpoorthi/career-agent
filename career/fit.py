@@ -26,7 +26,12 @@ ABROAD_PLACES = ["united states", "usa", "u.s.", "united kingdom", "uk", "london
                  "munich", "netherlands", "amsterdam", "ireland", "dublin", "canada", "toronto",
                  "australia", "sydney", "singapore", "dubai", "uae", "abu dhabi", "france", "paris",
                  "europe", "emea", "new york", "san francisco", "seattle", "austin", "poland", "spain",
-                 "sweden", "denmark", "switzerland", "japan", "luxembourg", "belgium", "india"]
+                 "sweden", "denmark", "switzerland", "japan", "luxembourg", "belgium", "india", "mexico", "brazil",
+                 "argentina", "colombia", "chile", "israel", "tel aviv", "south africa", "nigeria", "kenya",
+                 "philippines", "vietnam", "indonesia", "malaysia", "thailand", "korea", "seoul", "tokyo", "china",
+                 "hong kong", "taiwan", "new zealand", "portugal", "lisbon", "italy", "austria", "czech", "prague",
+                 "romania", "bulgaria", "hungary", "greece", "turkey", "egypt", "saudi", "qatar", "riyadh",
+                 "latam", "americas", "north america", "us east", "us west", "nordics", "dach", "benelux"]
 US_NAMES = {"united states", "usa", "us", "u.s.", "united states of america"}
 
 SPONSOR_YES = [r"visa sponsorship (is )?(available|provided|offered)", r"(we|will) sponsor",
@@ -42,12 +47,22 @@ WORLDWIDE = re.compile(r"(?<![\w])(anywhere|worldwide|global|globally|internatio
 LPA = re.compile(r"(\d+(?:\.\d+)?)\s*(?:-|to|–)?\s*(\d+(?:\.\d+)?)?\s*(?:lpa|lakhs?|l\.p\.a)", re.I)
 MONEY = re.compile(r"(?P<cur>[$£€])\s?(?P<a>\d{2,3}(?:,\d{3})+|\d{2,3}\s?[kK])"
                    r"(?:\s*(?:-|to|–)\s*[$£€]?\s?(?P<b>\d{2,3}(?:,\d{3})+|\d{2,3}\s?[kK]))?")
-YEARS = re.compile(r"(\d+)\s*(?:\+|-\s*\d+|to\s*\d+)?\s*(?:\+\s*)?-?\s*(?:years?|yrs?)(?:\s+of)?\s+"
-                   r"(?:relevant\s+|professional\s+|industry\s+|hands-on\s+|work\s+)?experience", re.I)
+_N_YEARS = r"(?<![\d.])(\d+)\s*(?:\+|(?:-|–|—|to)\s*\d+)?\s*\+?\s*-?\s*(?:years?|yrs?)['’]?(?![\w])"
+# Reliable: "3+ years of (data analytics or BI) experience", "Experience: 2-4 years", "8-year experience",
+# "(at least 8 years)".
+YEARS = re.compile(_N_YEARS + r"(?:\s+of)?(?:\s+[\w/&.+-]+){0,5}?\s+(?:experience|exp)\b"
+                   r"|(?:experience|exp)\s*(?:[:\-–]|of|required|needed)?\s*(?:of\s+)?"
+                   r"(?:minimum\s+|min\.?\s+|at least\s+)?" + _N_YEARS
+                   + r"|(?:at least|minimum(?: of)?|min\.)\s+" + _N_YEARS, re.I)
+# Looser: "5–9 years in DevOps", "4–6 years of building". Only used when no reliable figure is found, and never
+# after "over / for / than", which is how companies describe their own history.
+YEARS_LOOSE = re.compile(r"(?<!over )(?<!for )(?<!than )(?<!past )" + _N_YEARS
+                         + r"\s+(?:in|with|working|as|building|of \w+ing|of hands-on|hands-on|professional)\b", re.I)
 CUR_CODE = {"$": "USD", "£": "GBP", "€": "EUR"}
 # Titles that are above entry level. Checked against the job title only, never the description.
 SENIOR_TITLE = re.compile(r"(?<![\w])(senior|sr\.?|staff|principal|lead|manager|director|head|vp|vice president|"
-                          r"architect|distinguished|chief)(?![\w])", re.I)
+                          r"architect|distinguished|chief|intermediate|mid[- ]?level|sde[ -]?[2-9]|"
+                          r"(?:engineer|developer|analyst|expert|specialist)[ ,-]*(?:[2-9]|ii|iii|iv))(?![\w])", re.I)
 
 
 @dataclass
@@ -121,6 +136,18 @@ def _home_places(profile: Profile) -> list[str]:
     return places + ([country] if country not in places else [])
 
 
+def _title_region(title: str, home_places: list[str]) -> str:
+    """Foreign places named in a job title, e.g. 'mexico' in 'Technical Support Engineer I - Mexico'."""
+    low = (title or "").lower()
+    if any(_has(low, p) for p in home_places):
+        return ""
+    found = [p for p in ABROAD_PLACES if p not in home_places and _has(low, p)]
+    for code, place in (("US", "USA"), ("U.S.", "USA"), ("UK", "UK")):
+        if re.search(r"(?<![\w])" + re.escape(code) + r"(?![\w])", title or ""):
+            found.append(place)
+    return ", ".join(dict.fromkeys(found))
+
+
 def check(profile: Profile, text: str, location_hint: str = "", title: str = "") -> FitReport:
     prefs = profile.preferences
     country = home_country(profile)
@@ -129,6 +156,8 @@ def check(profile: Profile, text: str, location_hint: str = "", title: str = "")
     us_is_foreign = country.lower() not in US_NAMES
     ok_locations = [p.lower() for p in prefs.get("ok_locations", [])]
     report = FitReport()
+    # A region in the title ("Support Engineer - Mexico", "... EMEA") is part of the job's location.
+    location_hint = f"{location_hint} {_title_region(title, home_places)}".strip()
     blob = f"{location_hint}\n{text}"
     lowered = blob.lower()
 
@@ -204,13 +233,16 @@ def check(profile: Profile, text: str, location_hint: str = "", title: str = "")
                 report.downgrade(SKIP, f"Pay {report.salary} is below your {cur} {floor:,} floor")
 
     # ---- experience ----
-    years = [int(m.group(1)) for m in YEARS.finditer(blob) if int(m.group(1)) < 30]
+    years = [int(next(g for g in m.groups() if g)) for m in YEARS.finditer(blob)]
+    years = [y for y in years if y < 30] or [int(m.group(1)) for m in YEARS_LOOSE.finditer(blob)
+                                            if int(m.group(1)) < 30]
     if years:
         # The first figure is nearly always the headline requirement. Later, smaller figures
         # ("2 years with Terraform") must not hide it, so never go below the first one.
         report.years_required = max(years[0], min(years))
         limit = prefs.get("max_years_required", 2)
-        if report.years_required > limit + 2:
+        strict = prefs.get("experience_strict")  # true: anything above the limit is skipped, no "stretch"
+        if report.years_required > limit + (0 if strict else 2):
             report.downgrade(SKIP, f"Asks for {report.years_required}+ years of experience")
         elif report.years_required > limit:
             report.downgrade(REVIEW, f"Asks for {report.years_required}+ years: a stretch, apply only if strong match")
