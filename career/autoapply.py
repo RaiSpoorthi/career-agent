@@ -35,6 +35,10 @@ CONFIRMED = re.compile(r"thank you for applying|thanks for applying|application 
                        r"your application has been", re.I)
 CAPTCHA_FRAMES = ('iframe[src*="recaptcha"][src*="bframe"]', 'iframe[src*="hcaptcha.com"]',
                   'iframe[src*="challenges.cloudflare.com"]', 'iframe[title*="captcha" i]')
+# Captcha checks often reject the agent's (automated) browser even when a person solves them. It is never
+# disguised: you finish such forms in your own browser.
+CAPTCHA_TIP = (" If the site then says it could not verify your application, use Apply in my browser: it opens "
+               "the form in your usual browser, with your resume folder and the answers ready to copy.")
 SUBMIT_TEXT = re.compile(r"submit|apply|send application", re.I)
 
 # Runs inside the page: finds every form field, its question text, and whether it is required.
@@ -327,7 +331,7 @@ def apply_to_job(tracker: Tracker, profile: Profile, job_id: str, *, mode: str =
             return _with(hand_off("Required question(s) I have no answer for: " + "; ".join(unresolved[:6])),
                          filled, unresolved)
         if _captcha_visible(page):
-            return _with(hand_off("The form shows a captcha."), filled, unresolved)
+            return _with(hand_off("The form shows a captcha." + CAPTCHA_TIP), filled, unresolved)
         if not _submit(page):
             return _with(hand_off("Could not find the Submit button."), filled, unresolved)
         for _ in range(15):
@@ -341,7 +345,7 @@ def apply_to_job(tracker: Tracker, profile: Profile, job_id: str, *, mode: str =
                 say(f"  {row['id']}: submitted and confirmed.")
                 return ApplyResult("submitted", "", filled, unresolved)
             if _captcha_visible(page):
-                return _with(hand_off("A captcha appeared when submitting."), filled, unresolved)
+                return _with(hand_off("A captcha appeared when submitting." + CAPTCHA_TIP), filled, unresolved)
         return _with(hand_off("Submit was pressed but no confirmation appeared. Check whether it went through "
                               "before applying again."), filled, unresolved)
     except Unavailable:
@@ -353,6 +357,36 @@ def apply_to_job(tracker: Tracker, profile: Profile, job_id: str, *, mode: str =
             browser.close()
         finally:
             pw.stop()
+
+
+def open_in_own_browser(tracker: Tracker, job_id: str, *, open_url=None, open_folder=None) -> str:
+    """Open the application form in your usual browser, and the packet folder so you can attach the resume.
+
+    Nothing is filled in or controlled: it's the same as clicking the link yourself. Use it when a site
+    rejects the agent's browser (for example "error verifying your application" after a captcha).
+    """
+    import webbrowser
+
+    row = tracker.get(job_id)
+    url = row["apply_url"] or row["url"]
+    if not url:
+        return "This job has no link saved."
+    (open_url or webbrowser.open)(url)
+    folder = tracker.root / row["output_dir"] if row["output_dir"] else None
+    if folder and folder.exists():
+        (open_folder or _open_folder)(folder)
+    tracker.update(row["id"], apply_method="own-browser")
+    tracker.log("opened in your own browser to apply by hand", row["id"])
+    return ("Opened the form in your browser" + (" and the folder with resume.pdf" if folder else "")
+            + ". Copy the answers from this page, then press I submitted it.")
+
+
+def _open_folder(folder: Path) -> None:
+    if hasattr(os, "startfile"):
+        os.startfile(folder)  # Windows: opens File Explorer
+    else:
+        import webbrowser
+        webbrowser.open(folder.as_uri())
 
 
 def _with(result: ApplyResult, filled: list[str], unresolved: list[str]) -> ApplyResult:

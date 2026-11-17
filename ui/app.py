@@ -8,6 +8,7 @@ tracker, activity log and files stay identical whichever way you use it.
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import subprocess
 import sys
@@ -52,6 +53,11 @@ LINK_HELP = {"supported": "a public form the agent can fill in.",
              "none": "none saved. Apply with the packet wherever you found the job."}
 FIT_ORDER = {"APPLY": 0, "REVIEW": 1, "": 2, "SKIP": 3}
 ACTIVE = ("awaiting-human", "packet-ready", "discovered", "needs-description")
+
+
+def _question_label(pattern: str) -> str:
+    """'current (ctc|salary)' -> 'current ctc / salary': a readable label for a question in config/answers.yaml."""
+    return re.sub(r"\s+", " ", re.sub(r"[()?^$\\]", " ", pattern.replace("|", " / "))).strip().capitalize()
 
 
 def spawn_cli(root: Path, *args: str) -> subprocess.Popen:
@@ -165,6 +171,7 @@ document.getElementById('tasklog').textContent='\n'+r.tail;if(!r.running){clearI
 <div class="warn" style="margin-top:4px">{{ r.handoff_reason or 'Waiting for you.' }}</div></div>
 <div class="row">
 {% if r.automatable %}<form method="post" action="{{ url_for('takeover', job_id=r.id) }}" class="inline"><button>Take over</button></form>
+<form method="post" action="{{ url_for('own_browser', job_id=r.id) }}" class="inline"><button class="ghost" title="Opens the form in your usual browser and your resume folder; use it when a site rejects the agent's browser">Apply in my browser</button></form>
 {% else %}<a class="btn" href="{{ r.url }}" target="_blank" rel="noopener">Open listing ↗</a>{% endif %}
 {% if r.output_dir %}<a class="btn ghost" href="{{ url_for('packet_file', job_id=r.id, name='resume.pdf') }}" target="_blank">Resume</a>
 <a class="btn ghost" href="{{ url_for('job', job_id=r.id) }}#change">Change resume</a>
@@ -268,9 +275,18 @@ placeholder="e.g. Put my internship first, start the headline with Azure AD and 
 {% if r.handoff_reason %}<p class="warn">{{ r.handoff_reason }}</p>{% endif %}
 {% if automatable %}<div class="row">
 <form method="post" action="{{ url_for('takeover', job_id=r.id) }}" class="inline"><button>Take over (opens the filled form)</button></form>
-<form method="post" action="{{ url_for('auto_apply', job_id=r.id) }}" class="inline"><button class="ghost">Fill and submit for me</button></form></div>
-<p class="note">Both open a browser on this computer. "Fill and submit" stops and hands the form to you if a required question has no answer or a captcha appears.</p>
-{% else %}<p class="note">This listing is on a site the agent does not automate. Open it and apply with the packet above, then mark it applied.</p>{% endif %}</div>{% endif %}
+<form method="post" action="{{ url_for('auto_apply', job_id=r.id) }}" class="inline"><button class="ghost">Fill and submit for me</button></form>
+<form method="post" action="{{ url_for('own_browser', job_id=r.id) }}" class="inline"><button class="ghost">Apply in my browser</button></form></div>
+<p class="note">"Take over" and "Fill and submit" use the agent's browser. "Fill and submit" stops and hands the form to you if a required question has no answer or a captcha appears.
+Some sites reject the agent's browser even after you solve a captcha ("error verifying your application"): then use <b>Apply in my browser</b>, which opens the form in your usual browser and your resume folder, and copy the answers below.</p>
+{% else %}<p class="note">This listing is on a site the agent does not automate. Open it and apply with the packet above and the answers below, then mark it applied.</p>{% endif %}
+{% if answers %}<h2 id="answers" style="margin-top:14px">Your answers</h2>
+<table>{% for q, a in answers %}<tr><td style="width:30%" class="note">{{ q }}</td><td>{{ a }}</td>
+<td style="width:70px"><button type="button" class="ghost copy" data-v="{{ a }}">Copy</button></td></tr>{% endfor %}</table>
+{% if cover %}<p style="margin-top:10px"><b>Why are you a good fit?</b> <button type="button" class="ghost copy" data-v="{{ cover }}">Copy</button></p><p>{{ cover }}</p>{% endif %}
+<script>document.querySelectorAll('button.copy').forEach(b=>b.addEventListener('click',async()=>{
+try{await navigator.clipboard.writeText(b.dataset.v);const t=b.textContent;b.textContent='Copied';setTimeout(()=>b.textContent=t,1200)}catch(e){}}))</script>{% endif %}
+</div>{% endif %}
 <div class="grid g2">
 <div class="card"><h2>Applied?</h2>
 {% if r.date_applied %}<p>Applied on <b>{{ r.date_applied }}</b>.</p>{% endif %}
@@ -460,11 +476,32 @@ def create_app(root: Path = ROOT) -> Flask:
                 revisions = (saved.get("model_output") or {}).get("revisions") or []
             except (ValueError, OSError):
                 pass
+        answers, cover = [], ""
+        if r["output_dir"] and jd:
+            from career import answers as ans
+            from career import fit as fitmod
+            from career.forms import answer_rows
+            from career.packet import cover_note
+
+            prof = profile()
+            answers = answer_rows(prof, fitmod.check(prof, jd, r["location"], r["role"]))
+            extra = ans.load_extra(personal_file(ans.ANSWERS_FILE, root))
+            answers += [(_question_label(i["question"]), str(i["answer"])) for i in extra.get("answers") or []
+                        if i.get("question") and str(i.get("answer") or "").strip()]
+            cover = cover_note(tracker, r)
         return render_template("job.html", active="jobs", r=r, jd=jd, kw=kw, statuses=STATUSES, files=files,
-                               revisions=revisions,
+                               revisions=revisions, answers=answers, cover=cover,
                                submitted=SUBMITTED, history=list(reversed(tracker.events(40, job_id=r["id"]))),
                                automatable=kind in ("supported", "unsupported"), link_help=LINK_HELP[kind],
                                today=datetime.now().strftime("%Y-%m-%d"))
+
+    @app.post("/job/<job_id>/own-browser")
+    def own_browser(job_id):
+        from career.autoapply import open_in_own_browser
+        flash(open_in_own_browser(tracker, job_id))
+        if request.form.get("back") == "needs":
+            return redirect(url_for("needs"))
+        return redirect(url_for("job", job_id=job_id) + "#answers")
 
     @app.post("/job/<job_id>/revise")
     def revise(job_id):

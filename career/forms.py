@@ -28,10 +28,28 @@ def expected_salary(profile: Profile, fit: FitReport) -> str:
 
 
 def answers_markdown(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str = "") -> str:
+    rows = answer_rows(profile, fit)
+    lines = [f"# Application answers: {job.get('role', '')} @ {job.get('company', '')}", "",
+             f"Link: {job.get('url') or '-'}", "",
+             "| Question | Answer |", "|---|---|"]
+    lines += [f"| {q} | {a} |" for q, a in rows]
+    lines += ["", "## Why are you a good fit? (draft, checked against your profile)", "",
+              cover_note or "_Not generated. Run `apply` with Gemini, or write 3-4 lines yourself._", "",
+              "## Before you submit",
+              "- Read the tailored resume once. You must be able to explain every line in an interview.",
+              "- Upload `resume.pdf` unless the site asks for Word (use `resume.docx`).",
+              "- After submitting: `python jobs.py status " + job.get("id", "<id>") + " applied`", ""]
+    if fit.reasons:
+        lines += ["## Check first", *[f"- {r}" for r in fit.reasons], ""]
+    return "\n".join(lines)
+
+
+def answer_rows(profile: Profile, fit: FitReport) -> list[tuple[str, str]]:
+    """The usual application questions with your answers, from your profile (for answers.md and the dashboard)."""
     c = profile.contact
     p = profile.preferences
     edu = profile.data["education"][0]
-    rows = [
+    return [
         ("Full name", c["name"]),
         ("Email", c["email"]),
         ("Phone", c["phone"]),
@@ -49,16 +67,3 @@ def answers_markdown(profile: Profile, job: dict[str, str], fit: FitReport, cove
          else f"Based in {c['location']}; open to remote"),
         ("Expected salary", expected_salary(profile, fit)),
     ]
-    lines = [f"# Application answers: {job.get('role', '')} @ {job.get('company', '')}", "",
-             f"Link: {job.get('url') or '-'}", "",
-             "| Question | Answer |", "|---|---|"]
-    lines += [f"| {q} | {a} |" for q, a in rows]
-    lines += ["", "## Why are you a good fit? (draft, checked against your profile)", "",
-              cover_note or "_Not generated. Run `apply` with Gemini, or write 3-4 lines yourself._", "",
-              "## Before you submit",
-              "- Read the tailored resume once. You must be able to explain every line in an interview.",
-              "- Upload `resume.pdf` unless the site asks for Word (use `resume.docx`).",
-              "- After submitting: `python jobs.py status " + job.get("id", "<id>") + " applied`", ""]
-    if fit.reasons:
-        lines += ["## Check first", *[f"- {r}" for r in fit.reasons], ""]
-    return "\n".join(lines)

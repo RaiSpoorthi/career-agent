@@ -469,6 +469,26 @@ def test_add_job_page_saves_then_applies_in_background(client):
     assert started[-1] == ("apply-now", "J0001")
 
 
+def test_apply_in_own_browser_opens_form_and_folder_and_shows_answers(client, monkeypatch):
+    c, t, started = client
+    opened = []
+    monkeypatch.setattr("webbrowser.open", lambda url, *a, **k: opened.append(url))
+    monkeypatch.setattr(autoapply, "_open_folder", lambda folder: opened.append(folder.name))
+    assert "Apply in my browser" in c.get("/needs").get_data(as_text=True)
+    resp = c.post("/job/J0001/own-browser")
+    assert resp.headers["Location"].endswith("/job/J0001#answers") and not started  # no agent browser
+    assert opened[0] == "https://job-boards.greenhouse.io/acme/jobs/1" and opened[1].startswith("J0001_")
+    assert t.get("J0001")["apply_method"] == "own-browser"
+    page = c.get("/job/J0001").get_data(as_text=True)
+    assert "Your answers" in page and 'class="ghost copy"' in page
+    assert "Portfolio / website" in page and "Notice period" in page
+
+
+def test_question_labels_are_readable():
+    from ui.app import _question_label
+    assert _question_label("current (ctc|salary|compensation)") == "Current ctc / salary / compensation"
+
+
 def test_settings_and_logs_pages(client):
     c, t, _ = client
     c.post("/settings", data={"apply_mode": "auto", "min_keyword_score": "60", "max_packets_per_run": "abc",
