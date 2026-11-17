@@ -435,6 +435,7 @@ def test_needs_you_page_and_actions(client):
     c, t, started = client
     page = c.get("/needs").get_data(as_text=True)
     assert "The form shows a captcha." in page and "<button>Take over</button>" in page and "Open listing" in page
+    assert "/job/J0001#change" in page  # straight to "Change this resume"
     assert 'class="badge">2<' in c.get("/").get_data(as_text=True)
     c.post("/job/J0001/takeover")
     c.post("/run")

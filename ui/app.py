@@ -167,6 +167,7 @@ document.getElementById('tasklog').textContent='\n'+r.tail;if(!r.running){clearI
 {% if r.automatable %}<form method="post" action="{{ url_for('takeover', job_id=r.id) }}" class="inline"><button>Take over</button></form>
 {% else %}<a class="btn" href="{{ r.url }}" target="_blank" rel="noopener">Open listing ↗</a>{% endif %}
 {% if r.output_dir %}<a class="btn ghost" href="{{ url_for('packet_file', job_id=r.id, name='resume.pdf') }}" target="_blank">Resume</a>
+<a class="btn ghost" href="{{ url_for('job', job_id=r.id) }}#change">Change resume</a>
 <a class="btn ghost" href="{{ url_for('packet_file', job_id=r.id, name='answers.md') }}" target="_blank">Answers</a>{% endif %}
 <form method="post" action="{{ url_for('status', job_id=r.id) }}" class="inline"><input type="hidden" name="status" value="completed-manual"><input type="hidden" name="back" value="needs"><button class="ghost">I submitted it</button></form>
 <form method="post" action="{{ url_for('status', job_id=r.id) }}" class="inline"><input type="hidden" name="status" value="skipped"><input type="hidden" name="back" value="needs"><button class="ghost">Skip</button></form>
@@ -244,7 +245,7 @@ document.getElementById('tasklog').textContent='\n'+r.tail;if(!r.running){clearI
 </div>
 <p class="note">Application link: {{ link_help }} Apply mode is <b>{{ mode }}</b>{% if mode == 'review' %}: the form opens filled in and you press Submit{% elif mode == 'auto' %}: it submits only when every required question is answered{% else %}: nothing is opened{% endif %}.</p>
 </div>
-{% if 'resume.pdf' in files %}<div class="card"><h2>Change this resume</h2>
+{% if 'resume.pdf' in files %}<div class="card" id="change"><h2>Change this resume</h2>
 <div class="note" style="margin-bottom:8px">Tell the agent what to change, in your own words. It rewrites the resume, the
 truthfulness guard checks every line, and the ATS score is checked again. It can reorder, reword, choose bullets and skills,
 and change the headline. It can't add anything your profile doesn't have, and it tells you when it skips part of a request.</div>
