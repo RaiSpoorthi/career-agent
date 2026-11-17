@@ -257,7 +257,8 @@ placeholder="e.g. Put my internship first, start the headline with Azure AD and 
 <div><b>“{{ rev.instruction }}”</b> <span class="note">· ATS {{ rev.ats_before or '-' }} → <b>{{ rev.ats_after or '-' }}</b> · exact keywords {{ rev.keyword_before }}% → {{ rev.keyword_after }}%</span></div>
 {% for c in rev.changes_made %}<div class="note">✓ {{ c }}</div>{% endfor %}
 {% for c in rev.not_done %}<div class="note warn">✗ Not done: {{ c }}</div>{% endfor %}
-{% for c in rev.guard_issues %}<div class="note warn">↺ Reverted by the guard: {{ c }}</div>{% endfor %}
+{% if rev.guard_issues %}<details class="note"><summary style="font-weight:400">↺ {{ rev.guard_issues|length }} suggestion(s) from Gemini were changed back by the truthfulness guard</summary>
+{% for c in rev.guard_issues %}<div class="note">{{ c }}</div>{% endfor %}</details>{% endif %}
 </div>{% endfor %}{% endif %}</div>
 <div class="card"><h2>Tailored resume</h2>
 <iframe class="preview" src="{{ url_for('packet_file', job_id=r.id, name='resume.pdf') }}" title="Tailored resume preview"></iframe></div>{% endif %}

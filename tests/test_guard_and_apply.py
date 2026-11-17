@@ -179,6 +179,27 @@ def test_base_resumes_render_one_page_with_links(profile, tmp_path, track):
     assert "ALEX MORGAN" in body and "Experience" in body
 
 
+def test_header_shows_portfolio_only_when_set(profile, tmp_path):
+    from docx import Document
+    doc = layout(profile, base_content(profile, "security"))
+    assert write_pdf(doc, tmp_path / "r.pdf") == 1
+    reader = PdfReader(tmp_path / "r.pdf")
+    links = [a.get_object()["/A"]["/URI"] for a in reader.pages[0]["/Annots"]]
+    assert "https://example-alex-morgan.github.io" in links  # clickable
+    write_docx(doc, tmp_path / "r.docx")
+    lines = [p.text for p in Document(tmp_path / "r.docx").paragraphs][:5]
+    assert any(line.startswith("linkedin.com/in/example-alex-morgan") and line.endswith("example-alex-morgan.github.io")
+               for line in lines)  # links on their own line, same as the PDF
+
+    no_site = dict(doc, contact={k: v for k, v in doc["contact"].items() if k != "portfolio"})
+    assert write_pdf(no_site, tmp_path / "n.pdf") == 1
+    links = [a.get_object()["/A"]["/URI"] for a in PdfReader(tmp_path / "n.pdf").pages[0]["/Annots"]]
+    assert not any("github.io" in u for u in links)
+    write_docx(no_site, tmp_path / "n.docx")
+    lines = [p.text for p in Document(tmp_path / "n.docx").paragraphs][:5]
+    assert any("@example.com" in line and "github.com/example-alex-morgan" in line for line in lines)  # one line
+
+
 def test_international_drops_school(profile):
     doc = layout(profile, base_content(profile, "security"), international=True)
     assert [e["school"] for e in doc["education"]] == ["Example Institute of Technology, Bengaluru"]

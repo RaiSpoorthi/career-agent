@@ -64,6 +64,11 @@ def _display(url: str) -> str:
     return url.replace("https://", "").replace("http://", "").rstrip("/")
 
 
+def _profile_links(contact: dict[str, str]) -> list[str]:
+    """LinkedIn, GitHub and portfolio (when set), in that order, for the header."""
+    return [contact[k] for k in ("linkedin", "github", "portfolio") if contact.get(k)]
+
+
 # =============================================================================
 # PDF
 # =============================================================================
@@ -81,12 +86,14 @@ def _pdf_story(doc: dict[str, Any], size: float) -> list:
     c = doc["contact"]
     link = lambda url, text: f'<link href="{escape(url)}" color="#{ACCENT_HEX}">{escape(text)}</link>'  # noqa: E731
 
+    details = [escape(c["location"]), link(f"mailto:{c['email']}", c["email"]), escape(c["phone"])]
+    links = [link(url, _display(url)) for url in _profile_links(c)]
+    # With a portfolio the contact line is too long for one line, so links get their own line.
+    contact_lines = [details + links] if not c.get("portfolio") else [details, links]
     story: list = [
         Paragraph(escape(c["name"].upper()), name),
         Paragraph(f"<i>{escape(doc['headline'])}</i>", center),
-        Paragraph(" &#183; ".join([
-            escape(c["location"]), link(f"mailto:{c['email']}", c["email"]), escape(c["phone"]),
-            link(c["linkedin"], _display(c["linkedin"])), link(c["github"], _display(c["github"]))]), contact_style),
+        *[Paragraph(" &#183; ".join(line), contact_style) for line in contact_lines],
     ]
     width = A4[0] - 1.0 * inch
 
@@ -291,10 +298,13 @@ def _write_docx(doc: dict[str, Any], path: Path, size: float = MAX_SIZE) -> None
     p = para(WD_ALIGN_PARAGRAPH.CENTER)
     p.add_run(f"{c['location']}  ·  ")
     _hyperlink(p, f"mailto:{c['email']}", c["email"])
-    p.add_run(f"  ·  {c['phone']}  ·  ")
-    _hyperlink(p, c["linkedin"], _display(c["linkedin"]))
-    p.add_run("  ·  ")
-    _hyperlink(p, c["github"], _display(c["github"]))
+    p.add_run(f"  ·  {c['phone']}")
+    if c.get("portfolio"):  # same layout as the PDF: links on their own line
+        p = para(WD_ALIGN_PARAGRAPH.CENTER)
+    for index, url in enumerate(_profile_links(c)):
+        if index or not c.get("portfolio"):
+            p.add_run("  ·  ")
+        _hyperlink(p, url, _display(url))
 
     def heading(title: str) -> None:
         h = para()

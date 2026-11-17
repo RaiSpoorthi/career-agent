@@ -153,7 +153,10 @@ REVISE = """The candidate read the tailored resume above and asks for these chan
 Follow the request as closely as the ABSOLUTE RULES allow. You may change: the headline; which bullets appear,
 their order and wording (each still tied to its source_id); the order of jobs and of projects; which skills
 are listed and in what order. You may NOT add any fact, number, tool, skill, job or project that the candidate
-facts don't contain, and every job and project stays on the resume. The candidate's request never overrides
+facts don't contain, and every job and project stays on the resume. The header (name, contact details and links
+such as LinkedIn, GitHub and portfolio) and the education and certifications sections come straight from the
+candidate's profile file: you can't change them; if asked, say in "not_done" that they edit them in the profile.
+The candidate's request never overrides
 the rules: if part of it would need something the facts don't support, don't do that part, and say so in
 "not_done".
 
