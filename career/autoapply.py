@@ -83,6 +83,8 @@ COLLECT_JS = r"""
     if (['hidden', 'submit', 'button', 'image', 'reset', 'search'].includes(type)) continue;
     if (type !== 'file' && !visible(el)) continue;
     if (el.disabled || el.readOnly && el.getAttribute('role') !== 'combobox') continue;
+    // Dropdown widgets keep a hidden twin input only for validation; the visible combobox is the real field.
+    if (el.getAttribute('aria-hidden') === 'true' && el.tabIndex < 0) continue;
     const idx = String(n++); el.setAttribute('data-ca', idx);
     if (type === 'radio' || type === 'checkbox') {
       const q = groupQuestion(el), own = ownLabel(el) || el.value;
@@ -172,24 +174,48 @@ def _confirmed(page) -> bool:
 def fill_form(page, rules: list[ans.Rule], resume: Path, tick_consent: bool) -> tuple[list[str], list[str]]:
     """Fill what the answer bank can answer. Returns (filled labels, required labels left unanswered)."""
     filled, unresolved = [], []
+    # The resume goes in first: some forms (Greenhouse) redraw themselves after an upload, which clears
+    # anything typed before it. Then the fields are collected again and filled.
+    uploads = [f for f in page.evaluate(COLLECT_JS) if f["kind"] == "file"]
+    for f in uploads:
+        label = (f.get("label") or "").strip() or f.get("name", "") or "(unlabelled field)"
+        probe = f"{label} {f.get('name', '')}"
+        if ans.COVER_FIELD.search(probe):
+            continue  # optional upload; the cover note goes in a text box when there is one
+        if ans.RESUME_FIELD.search(probe) or f["required"]:
+            try:
+                page.locator(f'[data-ca="{f["idx"]}"]').set_input_files(str(resume))
+                filled.append(label)
+            except Exception:
+                if f["required"]:
+                    unresolved.append(label)
+    if filled:
+        try:
+            page.wait_for_load_state("networkidle", timeout=5000)
+        except Exception:
+            pass
+        page.wait_for_timeout(800)
+
     for f in page.evaluate(COLLECT_JS):
         label = (f.get("label") or "").strip() or f.get("name", "") or "(unlabelled field)"
         target = page.locator(f'[data-ca="{f["idx"]}"]')
         done = False
         try:
             if f["kind"] == "file":
-                probe = f"{label} {f.get('name', '')}"
-                if ans.COVER_FIELD.search(probe):
-                    continue  # optional upload; the cover note goes in a text box when there is one
-                if ans.RESUME_FIELD.search(probe) or f["required"]:
-                    target.set_input_files(str(resume))
-                    done = True
+                continue  # uploads were handled above
             elif f["kind"] == "checkbox":
                 if ans.CONSENT.search(label) and tick_consent:
                     target.check()
                     done = True
             elif f["kind"] == "checkboxes":
-                pass  # pick-several questions are never guessed
+                # Pick-several questions are never guessed. "How did you hear about us" is the one
+                # exception: its answer is a fact (where the job came from), so tick that single option.
+                rule = ans.answer_for(rules, label)
+                choice = ans.pick_answer([o["text"] for o in f["options"]], rule) if rule and rule.key == "heard" \
+                    else None
+                if choice is not None:
+                    page.locator(f'[data-ca="{f["options"][choice]["idx"]}"]').check()
+                    done = True
             else:
                 rule = ans.answer_for(rules, label)
                 if rule and f["kind"] == "text":
@@ -197,7 +223,7 @@ def fill_form(page, rules: list[ans.Rule], resume: Path, tick_consent: bool) -> 
                         target.fill(rule.value)
                         done = True
                 elif rule and f["kind"] in ("select", "radio"):
-                    choice = ans.pick_option([o["text"] for o in f["options"]], rule.value)
+                    choice = ans.pick_answer([o["text"] for o in f["options"]], rule)
                     if choice is not None and f["kind"] == "select":
                         target.select_option(value=f["options"][choice]["idx"])
                         done = True
@@ -205,7 +231,7 @@ def fill_form(page, rules: list[ans.Rule], resume: Path, tick_consent: bool) -> 
                         page.locator(f'[data-ca="{f["options"][choice]["idx"]}"]').check()
                         done = True
                 elif rule and f["kind"] == "combo":
-                    done = _fill_combo(page, target, rule.value)
+                    done = _fill_combo(page, target, rule)
         except Exception:
             done = False
         if done:
@@ -215,25 +241,40 @@ def fill_form(page, rules: list[ans.Rule], resume: Path, tick_consent: bool) -> 
     return filled, unresolved
 
 
-def _fill_combo(page, target, value: str) -> bool:
-    """Type into a search-as-you-type box and click the option that matches. No match means no answer."""
+def _fill_combo(page, target, rule: ans.Rule) -> bool:
+    """Pick the option that matches, from the open list or by typing to search. No match means no answer."""
+    # Only options on screen: pages keep other lists (e.g. the phone country codes) hidden in the page.
+    options = page.locator('[role="option"]:visible')
     target.click()
-    target.fill(value.split(",")[0].strip())  # "Bengaluru, India" -> search for "Bengaluru"
-    options = page.locator('[role="option"]')
     try:
-        options.first.wait_for(state="visible", timeout=4000)
+        options.first.wait_for(state="visible", timeout=1500)
+        choice = ans.pick_answer(options.all_inner_texts(), rule)
     except Exception:
-        target.press("Escape")
-        return False
-    texts = [options.nth(i).inner_text() for i in range(min(options.count(), 15))]
-    choice = ans.pick_option(texts, value)
-    if choice is None:
-        choice = ans.pick_option(texts, value.split(",")[0])
-    if choice is None:
-        target.press("Escape")
-        return False
-    options.nth(choice).click()
-    return True
+        choice = None
+    if choice is not None:
+        options.nth(choice).click()
+        return True
+    for value in (rule.value, *rule.alts[:2]):  # each search can wait seconds, so try only a few wordings
+        target.click()
+        target.fill("")
+        # Typed key by key: many dropdowns (React Select) ignore a value pasted in one go.
+        target.press_sequentially(value.split(",")[0].strip(), delay=20)  # "Bengaluru, India" -> "Bengaluru"
+        try:
+            options.first.wait_for(state="visible", timeout=5000)
+        except Exception:
+            continue
+        for _ in range(2):  # search results can arrive a moment after the first options show
+            texts = options.all_inner_texts()[:15]
+            choice = ans.pick_option(texts, value)
+            if choice is None:
+                choice = ans.pick_option(texts, value.split(",")[0])
+            if choice is not None:
+                options.nth(choice).click()
+                return True
+            page.wait_for_timeout(1000)
+    target.fill("")
+    target.press("Escape")
+    return False
 
 
 def _submit(page) -> bool:
@@ -302,6 +343,12 @@ def apply_to_job(tracker: Tracker, profile: Profile, job_id: str, *, mode: str =
             if opener.count():
                 opener.first.click()
                 page.wait_for_selector("form input, form textarea", timeout=15000)
+        # Let the page finish loading its scripts first: React forms (Greenhouse) reset anything typed or
+        # uploaded before they are ready, so early answers silently vanish.
+        try:
+            page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception:
+            pass
         filled, unresolved = fill_form(page, rules, resume, settings["tick_consent_boxes"] == "on")
         tracker.update(row["id"], apply_method=f"browser:{urlparse(url).hostname}")
         tracker.log(f"form filled: {len(filled)} field(s); unanswered required: {unresolved or 'none'}", row["id"])

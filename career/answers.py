@@ -19,7 +19,11 @@ from career.forms import expected_salary
 from career.profile import Profile, personal_file
 
 ANSWERS_FILE = "config/answers.yaml"
-CONSENT = re.compile(r"privacy|consent|i agree|i acknowledge|i have read|terms|data protection|gdpr", re.I)
+CONSENT = re.compile(r"privacy|consent|i agree|i acknowledge|^acknowledge|i have read|terms|data protection|gdpr",
+                     re.I)
+# "How did you hear about us" options name the company's own site in many ways.
+CAREERS_SITE = ("Company careers page", "Careers Website", "Company Website", "Careers Page", "Career Site",
+                "Company Career Site", "Website")
 RESUME_FIELD = re.compile(r"resume|r[ée]sum[ée]|\bcv\b|curriculum", re.I)
 COVER_FIELD = re.compile(r"cover\s*letter", re.I)
 
@@ -29,6 +33,7 @@ class Rule:
     key: str
     pattern: re.Pattern
     value: str
+    alts: tuple[str, ...] = ()  # other wordings of the same answer, for picking from a list of options
 
 
 def normalize(text: str) -> str:
@@ -71,7 +76,9 @@ def build(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str
          str(extra.get("portfolio") or c.get("portfolio") or "")),
         ("notice", r"notice period|how soon can you (join|start)|earliest start", f"{p['notice_period_days']} days"),
         ("sponsorship", r"sponsor", "Yes" if fit.abroad else "No"),
-        ("work_auth", r"authori[sz]ed to work|legally (able|allowed|permitted|entitled) to work|right to work|"
+        # Not "what is the source/basis of your right to work": that asks for a type (citizen, visa…), not Yes.
+        ("work_auth", r"authori[sz]ed to work|legally (able|allowed|permitted|entitled) to work|"
+                      r"(?<!source of your )(?<!basis of your )right to work|"
                       r"eligible to work|work permit", "No" if fit.abroad else "Yes"),
         ("salary", r"(expected|desired|target).{0,20}(salary|ctc|compensation|pay)|salary expectation|"
                    r"compensation expectation", expected_salary(profile, fit, market)),
@@ -91,7 +98,9 @@ def build(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str
                                r"additional information|anything else|tell us about yourself", cover_note))
     # A rule with nothing to say (e.g. no portfolio) is left out, so that question stays unanswered
     # instead of being filled with something else.
-    return [Rule(key, re.compile(pattern, re.I), value) for key, pattern, value in rules if str(value).strip()]
+    alts = {"heard": CAREERS_SITE[1:] if heard == CAREERS_SITE[0] else ()}
+    return [Rule(key, re.compile(pattern, re.I), value, alts.get(key, ())) for key, pattern, value in rules
+            if str(value).strip()]
 
 
 def answer_for(rules: list[Rule], label: str) -> Rule | None:
@@ -112,4 +121,13 @@ def pick_option(options: list[str], value: str) -> int | None:
             return hits[0]
         if len(hits) > 1 and test(cleaned[hits[0]]) and want in ("yes", "no"):
             return hits[0]
+    return None
+
+
+def pick_answer(options: list[str], rule: Rule) -> int | None:
+    """pick_option for a rule's answer, then for each other wording of it."""
+    for value in (rule.value, *rule.alts):
+        choice = pick_option(options, value)
+        if choice is not None:
+            return choice
     return None

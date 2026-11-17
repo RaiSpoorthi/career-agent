@@ -144,6 +144,7 @@ iframe.preview{width:100%;height:760px;border:1px solid var(--line);border-radiu
 <span id="tasklog">{{ task.tail }}</span></div>
 <script>const t=setInterval(async()=>{try{const r=await (await fetch('{{ url_for('task_status') }}')).json();
 document.getElementById('tasklog').textContent='\n'+r.tail;if(!r.running){clearInterval(t);location.reload()}}catch(e){}},2000)</script>{% endif %}
+{% if browsers %}<div class="note" style="margin-bottom:10px">Browser working: {{ browsers|join(', ') }}</div>{% endif %}
 {% for n in notes %}<div class="alert"><span>{{ n.message }}</span>
 <form method="post" action="{{ url_for('dismiss', note_id=n.id) }}" class="inline"><button class="ghost">Dismiss</button></form></div>{% endfor %}
 {% for m in get_flashed_messages() %}<div class="flash">{{ m }}</div>{% endfor %}{% block body %}{% endblock %}</main>
@@ -444,17 +445,37 @@ def create_app(root: Path = ROOT) -> Flask:
     def running() -> bool:
         return task["proc"] is not None and task["proc"].poll() is None
 
+    # Browser actions for one job (apply, take over) run beside the main task: a take-over browser waits
+    # up to handoff_wait_minutes for you, and must not block "Run agent" or tailoring in the meantime.
+    browsers: dict[str, dict] = {}
+
+    def launch(into: dict, name: str, *args: str) -> None:
+        proc = spawn_cli(root, *args)
+        into.update(name=name, proc=proc, lines=[])
+
+        def pump() -> None:
+            for line in proc.stdout or []:
+                into["lines"].append(line.rstrip())
+        threading.Thread(target=pump, daemon=True).start()
+
     def start(name: str, *args: str) -> None:
         if running():
             flash(f"{task['name']} is still running. Wait for it to finish.")
             return
-        proc = spawn_cli(root, *args)
-        task.update(name=name, proc=proc, lines=[])
+        launch(task, name, *args)
 
-        def pump() -> None:
-            for line in proc.stdout or []:
-                task["lines"].append(line.rstrip())
-        threading.Thread(target=pump, daemon=True).start()
+    def open_browser(job_id: str, name: str, *args: str) -> bool:
+        current = browsers.get(job_id)
+        if current and current["proc"].poll() is None:
+            flash(f"{current['name']} is already open or working. Look for its browser window "
+                  "(it may be behind this one).")
+            return False
+        browsers[job_id] = {}
+        launch(browsers[job_id], name, *args)
+        return True
+
+    def open_browsers() -> list[str]:
+        return [b["name"] for b in browsers.values() if b["proc"].poll() is None]
 
     @app.before_request
     def local_only():
@@ -471,7 +492,8 @@ def create_app(root: Path = ROOT) -> Flask:
     def shared():
         return {"waiting": len(tracker.rows("awaiting-human")), "mode": tracker.setting("apply_mode"),
                 "notes": [n for n in tracker.notifications() if n["kind"] != "needs-you"][:3],
-                "task": {"name": task["name"], "tail": "\n" + "\n".join(task["lines"][-6:])} if running() else None}
+                "task": {"name": task["name"], "tail": "\n" + "\n".join(task["lines"][-6:])} if running() else None,
+                "browsers": open_browsers()}
 
     @app.get("/task")
     def task_status():
@@ -597,7 +619,7 @@ def create_app(root: Path = ROOT) -> Flask:
 
     @app.post("/job/<job_id>/apply-now")
     def apply_now(job_id):
-        start(f"Apply {job_id}", "apply-now", job_id)
+        open_browser(job_id, f"Apply {job_id}", "apply-now", job_id)
         return redirect(url_for("job", job_id=job_id))
 
     @app.route("/add", methods=["GET", "POST"])
@@ -624,19 +646,20 @@ def create_app(root: Path = ROOT) -> Flask:
             if request.form.get("only_save"):
                 flash(f"Saved {row['id']}: keyword {row['keyword_score']}%, fit {row['fit']}.")
             else:
-                start(f"Apply {row['id']}", "apply-now", row["id"])
+                open_browser(row["id"], f"Apply {row['id']}", "apply-now", row["id"])
             return redirect(url_for("job", job_id=row["id"]))
         return render_template("add.html", active="add", form=form, next_step=next_step)
 
     @app.post("/job/<job_id>/takeover")
     def takeover(job_id):
-        start(f"Take over {job_id}", "takeover", job_id)
-        flash("A browser window is opening on this computer with the form filled in. Finish it and press Submit.")
+        if open_browser(job_id, f"Take over {job_id}", "takeover", job_id):
+            flash("A browser window is opening on this computer (about 20 seconds) with the form filled in. "
+                  "Finish it and press Submit there. The dashboard stays usable meanwhile.")
         return redirect(url_for("job", job_id=job_id))
 
     @app.post("/job/<job_id>/auto-apply")
     def auto_apply(job_id):
-        start(f"Apply {job_id}", "auto-apply", job_id)
+        open_browser(job_id, f"Apply {job_id}", "auto-apply", job_id)
         return redirect(url_for("job", job_id=job_id))
 
     @app.post("/job/<job_id>/attach")

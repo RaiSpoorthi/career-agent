@@ -311,6 +311,26 @@ PAGES = {
     "/captcha": FORM.replace("EXTRA", '<iframe src="/recaptcha/api2/bframe" width="300" height="400"></iframe>'),
     "/consent": FORM.replace("EXTRA", '<label><input type="checkbox" name="ok" required> I agree to the privacy '
                                       'policy *</label>'),
+    # Like Greenhouse: a hidden phone-code list that also uses role=option, a dropdown that opens on click with
+    # a hidden twin input for validation, a tick-the-source question, and a "source of right to work" question.
+    "/dropdowns": FORM.replace("EXTRA", """
+<div style="display:none"><div role="option">Afghanistan +93</div><div role="option">India +91</div></div>
+<label id="c-l">Country *</label><input id="country" role="combobox" aria-labelledby="c-l" autocomplete="off">
+<input id="country-twin" aria-hidden="true" tabindex="-1" required style="opacity:0;width:1px">
+<input type="hidden" name="country"><div id="copts"></div>
+<fieldset><legend>How did you hear about us? *</legend>
+<label><input type="checkbox" name="heard" value="site"> Careers Website</label>
+<label><input type="checkbox" name="heard" value="li"> LinkedIn</label>
+<label><input type="checkbox" name="heard" value="gd"> Glassdoor</label></fieldset>
+<label for="rtw">What is the source of your right to work where this role is listed? *</label>
+<select id="rtw" name="rtw" required><option value="">Select...</option><option>Citizen</option><option>Visa</option></select>
+<script>
+const cb = document.getElementById('country'), copts = document.getElementById('copts');
+cb.addEventListener('click', () => { copts.innerHTML = '';
+  for (const c of ['India', 'Indonesia']) { const d = document.createElement('div'); d.setAttribute('role', 'option');
+    d.textContent = c; d.onclick = () => { cb.value = c; document.getElementById('country-twin').value = c;
+      document.querySelector('[name=country]').value = c; copts.innerHTML = ''; }; copts.appendChild(d); } });
+</script>"""),
 }
 
 
@@ -390,6 +410,16 @@ def test_browser_hands_off_instead_of_guessing(browser_job, path, expect):
     assert any(n["job_id"] == job_id for n in t.notifications())
 
 
+def test_dropdowns_and_source_question_are_answered_without_guessing(browser_job):
+    t, make, go, received = browser_job
+    result = go(make("/dropdowns"))
+    assert "Country *" in result.filled and "How did you hear about us? *" in result.filled
+    # The hidden validation twin is not a question of its own; "source of your right to work" is not a Yes/No,
+    # so it is the only thing left for you.
+    assert result.outcome == "handoff" and received == []
+    assert result.unresolved == ["What is the source of your right to work where this role is listed? *"]
+
+
 def test_consent_box_is_ticked_only_when_you_allow_it(browser_job):
     t, make, go, received = browser_job
     t.set_setting("tick_consent_boxes", "on")
@@ -439,6 +469,23 @@ def test_needs_you_page_and_actions(client):
     assert 'class="badge">2<' in c.get("/").get_data(as_text=True)
     c.post("/job/J0001/takeover")
     c.post("/run")
+    assert started == [("takeover", "J0001"), ("run",)]
+
+
+def test_open_takeover_browser_does_not_block_the_agent(client, monkeypatch):
+    import ui.app as ui_app
+    c, t, started = client
+
+    class Waiting:  # a take-over browser still open, waiting for you to press Submit
+        stdout = []
+
+        def poll(self):
+            return None
+    monkeypatch.setattr(ui_app, "spawn_cli", lambda root, *args: started.append(args) or Waiting())
+    c.post("/job/J0001/takeover")
+    page = c.post("/job/J0001/takeover", follow_redirects=True).get_data(as_text=True)
+    assert "already open" in page  # a second click does not open a second browser
+    c.post("/run")  # the agent still runs while the browser waits
     assert started == [("takeover", "J0001"), ("run",)]
     c.post("/job/J0001/status", data={"status": "completed-manual", "back": "needs"})
     assert t.get("J0001")["status"] == "completed-manual" and t.get("J0001")["date_applied"]
