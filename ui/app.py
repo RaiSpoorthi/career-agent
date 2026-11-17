@@ -171,7 +171,9 @@ document.getElementById('tasklog').textContent='\n'+r.tail;if(!r.running){clearI
 <div class="warn" style="margin-top:4px">{{ r.handoff_reason or 'Waiting for you.' }}</div></div>
 <div class="row">
 {% if r.automatable %}<form method="post" action="{{ url_for('takeover', job_id=r.id) }}" class="inline"><button>Take over</button></form>
-<form method="post" action="{{ url_for('own_browser', job_id=r.id) }}" class="inline"><button class="ghost" title="Opens the form in your usual browser and your resume folder; use it when a site rejects the agent's browser">Apply in my browser</button></form>
+<a class="btn ghost" href="{{ r.apply_url or r.url }}" target="_blank" rel="noopener"
+ onclick="setTimeout(()=>location.href='{{ url_for('job', job_id=r.id) }}#answers',300)"
+ title="Opens the application form in a new tab of this browser, and shows your answers here to copy">Apply in my browser ↗</a>
 {% else %}<a class="btn" href="{{ r.url }}" target="_blank" rel="noopener">Open listing ↗</a>{% endif %}
 {% if r.output_dir %}<a class="btn ghost" href="{{ url_for('packet_file', job_id=r.id, name='resume.pdf') }}" target="_blank">Resume</a>
 <a class="btn ghost" href="{{ url_for('job', job_id=r.id) }}#change">Change resume</a>
@@ -276,11 +278,18 @@ placeholder="e.g. Put my internship first, start the headline with Azure AD and 
 {% if automatable %}<div class="row">
 <form method="post" action="{{ url_for('takeover', job_id=r.id) }}" class="inline"><button>Take over (opens the filled form)</button></form>
 <form method="post" action="{{ url_for('auto_apply', job_id=r.id) }}" class="inline"><button class="ghost">Fill and submit for me</button></form>
-<form method="post" action="{{ url_for('own_browser', job_id=r.id) }}" class="inline"><button class="ghost">Apply in my browser</button></form></div>
+<a class="btn ghost" href="{{ r.apply_url or r.url }}" target="_blank" rel="noopener">Apply in my browser ↗</a></div>
 <p class="note">"Take over" and "Fill and submit" use the agent's browser. "Fill and submit" stops and hands the form to you if a required question has no answer or a captcha appears.
-Some sites reject the agent's browser even after you solve a captcha ("error verifying your application"): then use <b>Apply in my browser</b>, which opens the form in your usual browser and your resume folder, and copy the answers below.</p>
+Some sites reject the agent's browser even after you solve a captcha ("error verifying your application"): then use <b>Apply in my browser</b>, which opens the form in a new tab here, and copy the answers below.</p>
 {% else %}<p class="note">This listing is on a site the agent does not automate. Open it and apply with the packet above and the answers below, then mark it applied.</p>{% endif %}
 {% if answers %}<h2 id="answers" style="margin-top:14px">Your answers</h2>
+{% set form_link = r.apply_url or r.url %}
+<div class="row" style="margin-bottom:8px">
+{% if form_link %}<a class="btn" href="{{ form_link }}" target="_blank" rel="noopener">1. Open the application form ↗</a>{% endif %}
+<form method="post" action="{{ url_for('open_folder', job_id=r.id) }}" class="inline"><button class="ghost">2. Open resume folder</button></form>
+<span class="note">3. Copy each answer below into the form, attach resume.pdf, submit, then mark it applied.</span></div>
+{% if form_link %}<div class="note" style="margin-bottom:8px">Form: <a href="{{ form_link }}" target="_blank" rel="noopener">{{ form_link }}</a>
+<button type="button" class="ghost copy" data-v="{{ form_link }}">Copy link</button></div>{% endif %}
 <table>{% for q, a in answers %}<tr><td style="width:30%" class="note">{{ q }}</td><td>{{ a }}</td>
 <td style="width:70px"><button type="button" class="ghost copy" data-v="{{ a }}">Copy</button></td></tr>{% endfor %}</table>
 {% if cover %}<p style="margin-top:10px"><b>Why are you a good fit?</b> <button type="button" class="ghost copy" data-v="{{ cover }}">Copy</button></p><p>{{ cover }}</p>{% endif %}
@@ -495,12 +504,10 @@ def create_app(root: Path = ROOT) -> Flask:
                                automatable=kind in ("supported", "unsupported"), link_help=LINK_HELP[kind],
                                today=datetime.now().strftime("%Y-%m-%d"))
 
-    @app.post("/job/<job_id>/own-browser")
-    def own_browser(job_id):
-        from career.autoapply import open_in_own_browser
-        flash(open_in_own_browser(tracker, job_id))
-        if request.form.get("back") == "needs":
-            return redirect(url_for("needs"))
+    @app.post("/job/<job_id>/open-folder")
+    def open_folder(job_id):
+        from career.autoapply import open_packet_folder
+        flash(open_packet_folder(tracker, job_id))
         return redirect(url_for("job", job_id=job_id) + "#answers")
 
     @app.post("/job/<job_id>/revise")

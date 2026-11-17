@@ -38,7 +38,7 @@ CAPTCHA_FRAMES = ('iframe[src*="recaptcha"][src*="bframe"]', 'iframe[src*="hcapt
 # Captcha checks often reject the agent's (automated) browser even when a person solves them. It is never
 # disguised: you finish such forms in your own browser.
 CAPTCHA_TIP = (" If the site then says it could not verify your application, use Apply in my browser: it opens "
-               "the form in your usual browser, with your resume folder and the answers ready to copy.")
+               "the form in a normal tab, and the job page lists your answers to copy.")
 SUBMIT_TEXT = re.compile(r"submit|apply|send application", re.I)
 
 # Runs inside the page: finds every form field, its question text, and whether it is required.
@@ -359,26 +359,19 @@ def apply_to_job(tracker: Tracker, profile: Profile, job_id: str, *, mode: str =
             pw.stop()
 
 
-def open_in_own_browser(tracker: Tracker, job_id: str, *, open_url=None, open_folder=None) -> str:
-    """Open the application form in your usual browser, and the packet folder so you can attach the resume.
+def open_packet_folder(tracker: Tracker, job_id: str) -> str:
+    """Open the job's packet folder (File Explorer on Windows) so you can drag resume.pdf into a form.
 
-    Nothing is filled in or controlled: it's the same as clicking the link yourself. Use it when a site
-    rejects the agent's browser (for example "error verifying your application" after a captcha).
+    Used with "Apply in my browser": a plain link to the form, opened in your own browser, for sites that
+    reject the agent's browser (for example "error verifying your application" after a captcha).
     """
-    import webbrowser
-
     row = tracker.get(job_id)
-    url = row["apply_url"] or row["url"]
-    if not url:
-        return "This job has no link saved."
-    (open_url or webbrowser.open)(url)
     folder = tracker.root / row["output_dir"] if row["output_dir"] else None
-    if folder and folder.exists():
-        (open_folder or _open_folder)(folder)
+    if not folder or not folder.exists():
+        return "This job has no packet yet. Generate it first."
+    _open_folder(folder)
     tracker.update(row["id"], apply_method="own-browser")
-    tracker.log("opened in your own browser to apply by hand", row["id"])
-    return ("Opened the form in your browser" + (" and the folder with resume.pdf" if folder else "")
-            + ". Copy the answers from this page, then press I submitted it.")
+    return f"Opened {folder.name}: drag resume.pdf into the application form."
 
 
 def _open_folder(folder: Path) -> None:
