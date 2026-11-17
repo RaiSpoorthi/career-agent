@@ -231,7 +231,8 @@ def test_mark_applied_and_status(client, project):
     assert "Use a date like" in bad.get_data(as_text=True)
     client.post("/job/J0001/status", data={"status": "interview", "note": "HR call"})
     assert T(project).get("J0001")["status"] == "interview"
-    jobs_page = client.get("/jobs").get_data(as_text=True)
+    assert "2026-11-15" not in client.get("/jobs").get_data(as_text=True)  # applied jobs leave the Open tab
+    jobs_page = client.get("/jobs?tab=applied").get_data(as_text=True)
     assert "2026-11-15" in jobs_page
 
 

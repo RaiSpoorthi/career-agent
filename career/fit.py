@@ -42,7 +42,7 @@ WORLDWIDE = re.compile(r"(?<![\w])(anywhere|worldwide|global|globally|internatio
 LPA = re.compile(r"(\d+(?:\.\d+)?)\s*(?:-|to|–)?\s*(\d+(?:\.\d+)?)?\s*(?:lpa|lakhs?|l\.p\.a)", re.I)
 MONEY = re.compile(r"(?P<cur>[$£€])\s?(?P<a>\d{2,3}(?:,\d{3})+|\d{2,3}\s?[kK])"
                    r"(?:\s*(?:-|to|–)\s*[$£€]?\s?(?P<b>\d{2,3}(?:,\d{3})+|\d{2,3}\s?[kK]))?")
-YEARS = re.compile(r"(\d+)\s*(?:\+|-\s*\d+|to\s*\d+)?\s*(?:\+\s*)?years?(?:\s+of)?\s+"
+YEARS = re.compile(r"(\d+)\s*(?:\+|-\s*\d+|to\s*\d+)?\s*(?:\+\s*)?-?\s*(?:years?|yrs?)(?:\s+of)?\s+"
                    r"(?:relevant\s+|professional\s+|industry\s+|hands-on\s+|work\s+)?experience", re.I)
 CUR_CODE = {"$": "USD", "£": "GBP", "€": "EUR"}
 # Titles that are above entry level. Checked against the job title only, never the description.

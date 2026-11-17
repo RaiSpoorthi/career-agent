@@ -27,13 +27,16 @@ SUBMITTED = ("applied-auto", "completed-manual")
 LEGACY = {"found": "discovered", "new": "discovered", "analyzed": "packet-ready", "applied": "completed-manual"}
 FIELDS = ["id", "added", "updated", "company", "role", "location", "url", "apply_url", "track", "keyword_score",
           "ats_score", "fit", "status", "output_dir", "notes", "source", "date_applied", "ats_before",
-          "ats_after", "shortlist_pct", "dedupe_key", "handoff_reason", "apply_method", "attempts", "salary"]
+          "ats_after", "shortlist_pct", "dedupe_key", "handoff_reason", "apply_method", "attempts", "salary",
+          "market_pay"]
 
 # Settings shown on the dashboard's Settings page. Values are stored as text.
 DEFAULT_SETTINGS = {
     "apply_mode": "review",          # off | review (you press Submit) | auto (agent submits)
     "min_keyword_score": "45",       # only jobs at or above this exact-keyword match are processed automatically
     "tailor_fits": "APPLY+REVIEW",   # fits that get a resume automatically: APPLY, or APPLY+REVIEW
+    "ats_target": "85",              # below this ATS estimate, one more Gemini pass tries to raise it (0 = off)
+    "market_pay": "on",              # on = estimate market pay per job (one Gemini call) for the salary answer
     "max_packets_per_run": "8",      # Gemini calls per run (free tier has daily limits)
     "gemini_gap_seconds": "12",      # pause between Gemini calls
     "max_applications_per_day": "10",

@@ -44,7 +44,7 @@ def load_extra(path: Path | None = None) -> dict[str, Any]:
 
 
 def build(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str = "",
-          extra: dict[str, Any] | None = None) -> list[Rule]:
+          extra: dict[str, Any] | None = None, market: dict[str, Any] | None = None) -> list[Rule]:
     """Rules are tried in order; the first whose pattern is found in the field label wins."""
     c, p, data = profile.contact, profile.preferences, profile.data
     extra = extra if extra is not None else load_extra()
@@ -74,7 +74,7 @@ def build(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str
         ("work_auth", r"authori[sz]ed to work|legally (able|allowed|permitted|entitled) to work|right to work|"
                       r"eligible to work|work permit", "No" if fit.abroad else "Yes"),
         ("salary", r"(expected|desired|target).{0,20}(salary|ctc|compensation|pay)|salary expectation|"
-                   r"compensation expectation", expected_salary(profile, fit)),
+                   r"compensation expectation", expected_salary(profile, fit, market)),
         ("heard", r"how did you (hear|find|learn)|where did you (hear|find)|source of application", heard),
         ("grad_year", r"graduat(ion|ed|ing).{0,12}(year|date)|year of (graduation|passing)", str(p["graduation_year"])),
         ("gpa", r"\bc?gpa\b|grade point", edu["score"].replace("GPA", "").strip()),

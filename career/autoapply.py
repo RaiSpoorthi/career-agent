@@ -282,7 +282,7 @@ def apply_to_job(tracker: Tracker, profile: Profile, job_id: str, *, mode: str =
     shutil.copyfile(folder / "resume.pdf", resume)
     text = tracker.jd_text(row["id"])
     fit = fitmod.check(profile, text, row["location"], row["role"])
-    rules = ans.build(profile, row, fit, pkt.cover_note(tracker, row))
+    rules = ans.build(profile, row, fit, pkt.cover_note(tracker, row), market=pkt.market_pay(tracker, row))
 
     # CAREER_AGENT_HEADLESS=1 forces a hidden browser (used by the tests; a takeover needs a visible one).
     headless = (settings["headless"] == "on" and mode == "auto") or os.environ.get("CAREER_AGENT_HEADLESS") == "1"

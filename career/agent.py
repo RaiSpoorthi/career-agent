@@ -52,13 +52,12 @@ def run_once(tracker: Tracker, profile: Profile, say=print, *, discover=None, bu
         found, notes = pipeline.discover(cfg)
         inbox, inbox_notes = sources.read_inbox(tracker.root / "inbox")
         found, notes = found + inbox, notes + inbox_notes
-        if (tracker.root / "gmail_token.json").exists():
-            try:
-                from career.gmail import fetch_alert_messages
-                for raw in fetch_alert_messages():
-                    found += sources.parse_alert_eml(raw)
-            except Exception as exc:
-                notes.append(f"Gmail: {str(exc)[:120]}")
+        try:  # Gmail, if an app password (or the Google API) is set up
+            from career.gmail import fetch_alerts
+            for raw in fetch_alerts(tracker.root):
+                found += sources.parse_alert_eml(raw)
+        except Exception as exc:
+            notes.append(f"Gmail: {str(exc)[:160]}")
     else:
         found, notes = discover()
     counts = pipeline.ingest(tracker, profile, found)

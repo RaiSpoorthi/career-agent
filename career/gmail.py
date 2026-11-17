@@ -1,24 +1,30 @@
 """Optional: read your job-alert emails straight from Gmail (read-only).
 
-Setup is in README under "Gmail alerts". In short:
-  1. Gmail: create a filter that labels LinkedIn and Naukri alert emails "job-alerts".
-  2. Google Cloud (free): create a project, enable the Gmail API, create an OAuth "Desktop app"
-     client, download it as client_secret.json into this folder.
-  3. First run asks you to sign in and allow read-only access. A token is saved locally.
+Two ways (README, "Job alerts from your email"):
+  * Easiest: an app password. In .env set GMAIL_ADDRESS and GMAIL_APP_PASSWORD (Google Account ->
+    Security -> 2-Step Verification -> App passwords). The mailbox is opened read-only over IMAP and alert
+    emails from LinkedIn, Naukri and other job sites are found by sender; nothing is marked read or changed.
+  * Google API: an OAuth "Desktop app" client saved as client_secret.json (gmail.readonly scope).
 
-Scope is gmail.readonly: the program can read messages, never send, delete or modify them.
-This module is not tested against live Google servers; the inbox/ folder method always works.
+Only alert emails you received are read, and only their job links are used.
 """
 
 from __future__ import annotations
 
 import base64
+import imaplib
+import os
 from pathlib import Path
 
 from career.profile import ROOT
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 DEFAULT_QUERY = "label:job-alerts newer_than:2d"
+# Senders of job-alert emails. Gmail's own search syntax (X-GM-RAW) finds them in every folder.
+ALERT_SENDERS = ["jobalerts-noreply@linkedin.com", "jobs-noreply@linkedin.com", "jobs-listings@linkedin.com",
+                 "naukri.com", "naukrialerts", "foundit.in", "instahyre.com", "wellfound.com", "cutshort.io",
+                 "hirist", "iimjobs.com", "glassdoor"]
+IMAP_DAYS = 3
 
 
 class GmailError(RuntimeError):
@@ -44,8 +50,56 @@ def _credentials(client_secret: Path, token_path: Path):
     return creds
 
 
+def imap_configured() -> bool:
+    from career.llm import load_env
+
+    load_env()
+    return bool(os.getenv("GMAIL_ADDRESS", "").strip() and os.getenv("GMAIL_APP_PASSWORD", "").strip())
+
+
+def fetch_via_imap(address: str, app_password: str, days: int = IMAP_DAYS, limit: int = 100,
+                   connect=imaplib.IMAP4_SSL) -> list[bytes]:
+    """Raw alert emails from the last `days` days, read-only (EXAMINE + BODY.PEEK: nothing marked read)."""
+    try:
+        conn = connect("imap.gmail.com")
+        conn.login(address, app_password.replace(" ", ""))
+    except imaplib.IMAP4.error as exc:
+        raise GmailError("Gmail refused the app password. Check GMAIL_ADDRESS and GMAIL_APP_PASSWORD in .env "
+                         "(an app password is 16 letters; your normal password won't work).") from exc
+    except OSError as exc:
+        raise GmailError(f"Could not reach Gmail ({type(exc).__name__}). Check your internet connection.") from exc
+    try:
+        status, _ = conn.select('"[Gmail]/All Mail"', readonly=True)
+        if status != "OK":  # the folder has another name in some languages
+            conn.select("INBOX", readonly=True)
+        query = f"from:({' OR '.join(ALERT_SENDERS)}) newer_than:{days}d"
+        status, data = conn.search(None, "X-GM-RAW", f'"{query}"')
+        ids = (data[0] or b"").split()[-limit:] if status == "OK" else []
+        messages = []
+        for msg_id in ids:
+            status, parts = conn.fetch(msg_id, "(BODY.PEEK[])")
+            raw = next((p[1] for p in parts or [] if isinstance(p, tuple)), None)
+            if status == "OK" and raw:
+                messages.append(raw)
+        return messages
+    finally:
+        try:
+            conn.logout()
+        except Exception:
+            pass
+
+
+def fetch_alerts(root: Path = ROOT) -> list[bytes]:
+    """Alert emails from Gmail by whichever method is set up (app password first). [] if neither is."""
+    if imap_configured():
+        return fetch_via_imap(os.environ["GMAIL_ADDRESS"].strip(), os.environ["GMAIL_APP_PASSWORD"])
+    if (root / "gmail_token.json").exists() or (root / "client_secret.json").exists():
+        return fetch_alert_messages(root)
+    return []
+
+
 def fetch_alert_messages(root: Path = ROOT, query: str = DEFAULT_QUERY, limit: int = 50) -> list[bytes]:
-    """Return raw RFC 822 bytes for each matching message."""
+    """Google API method: raw RFC 822 bytes for each matching message."""
     try:
         from googleapiclient.discovery import build
     except ImportError as exc:

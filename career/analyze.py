@@ -134,6 +134,7 @@ def run(profile: Profile, llm: JSONModel, job_text: str, track: str | None = Non
     prompt = build_prompt(profile, track, job_text, kw)
     output = llm.generate_json(SYSTEM, prompt)
     checked, output, iterations = _guarded(profile, llm, track, prompt, output)
+    output["skills_added"] = keywords.add_supported_skills(profile, checked.content, job_text)
     base_doc = layout(profile, base_content(profile, track), international)
     doc = layout(profile, checked.content, international)
     return Analysis(
@@ -188,8 +189,10 @@ def revise(profile: Profile, llm: JSONModel, job_text: str, previous: dict[str, 
                                        schema=json.dumps(REVISE_SCHEMA, indent=1)))
     answer = llm.generate_json(SYSTEM, prompt)
     checked, answer, iterations = _guarded(profile, llm, track, prompt, answer)
+    added = keywords.add_supported_skills(profile, checked.content, job_text)
 
     output = dict(previous.get("model_output") or {})
+    output["skills_added"] = sorted({*(output.get("skills_added") or []), *added})
     for key in ("steps4to7_tailored_resume", "step8_ats_after", "step9_recruiter_review", "cover_note"):
         if answer.get(key):
             output[key] = answer[key]
@@ -317,6 +320,9 @@ def report_markdown(job: dict[str, str], analysis: Analysis, fit: FitReport) -> 
         "## Steps 4-7: Tailored resume",
         f"Headline: _{analysis.doc['headline']}_  ",
         f"Rewritten bullets kept: **{analysis.rewrites_kept}**. Everything else is your original wording.",
+        "",
+        "Skills added because this job asks for them and your profile backs them: "
+        + (", ".join(out.get("skills_added") or []) or "none needed"),
         "",
         "### Truthfulness guard log",
         _list(analysis.guard_issues) if analysis.guard_issues else "All proposed changes passed.",

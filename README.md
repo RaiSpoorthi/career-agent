@@ -191,10 +191,35 @@ checks every line again, and the ATS score is re-checked. You see what was done,
 profile can't support is refused, with the reason), and the score before and after. From the terminal:
 `python jobs.py revise J0001 "put my internship first"`.
 
-### Pay
+### Pay and your expected salary
 
 Pay is read from each posting (LPA, USD, GBP or EUR) and shown in `python jobs.py list`, `show`, `digest`, and on
 the dashboard. Most postings don't state it; those show "not stated".
+
+When a resume is tailored, Gemini also estimates the **usual pay for that role at your level** (city, company type,
+your experience). Your expected-salary answer on forms becomes the middle of that range, **never below your own
+floor** (`salary_min_lpa` / `salary_min`), with "(open to discussion)". The estimate and its basis are shown on the
+job page and in `answers.md`. Gemini's live web search (grounding) isn't included in the free tier, so the estimate
+says "no web search" when it comes from Gemini's own knowledge. Turn it off on Settings ("Expected salary from market
+pay").
+
+### ATS scores
+
+The ATS numbers are Gemini's estimates; real ATS tools differ. Two things raise them **honestly**:
+- Every skill the job asks for that your profile backs (work/project level, or a tool in a job's or project's stack)
+  is put in your Skills section; coursework-only ones go under "Familiar with". `report.md` lists what was added.
+- If the estimate is below your **ATS target** (Settings, 85 by default), one more Gemini pass rewrites the resume
+  to match the job more closely, and the better version is kept.
+
+A skill you don't have is never added to reach a score; it goes to **Learn next** instead. If a job keeps scoring
+low, that's usually a real gap.
+
+### Jobs page
+
+Tabs for **Open**, **Applied** (applied-on date, status, pay, ATS, resume, report and answers, listing link) and
+**Skipped**, plus a search box (role, company, location, skill, status). Each job page starts with **At a glance**:
+experience asked, pay, location, must-have and nice-to-have skills, what you'd do, and which skills you have or miss.
+The full description is folded underneath.
 
 ### The dashboard
 
@@ -258,26 +283,45 @@ format is in the file's comments.
   same site, checks `robots.txt` before every page, waits 2 seconds between pages, and reads at most 25 listings
   per company.
 
-### LinkedIn and Naukri job alerts (from your email)
+### Job alerts from your email (LinkedIn, Naukri and others)
 The program never visits LinkedIn or Naukri; it only reads the alert emails you receive.
 
-**Simple way:** in Gmail, open an alert email, use **⋮ → Download message** to save a `.eml` file, and put it
-in the `inbox/` folder. Then click **Read alert emails** (or `python jobs.py ingest-inbox`).
-
-**Automatic way (Gmail, read-only, one-time setup):**
-1. In Gmail, create a filter for alert emails that applies the label **job-alerts**.
-2. At console.cloud.google.com create a project, enable the **Gmail API**, set up an **External** OAuth consent
-   screen with your own email as a test user, and create an **OAuth client ID** of type **Desktop app**.
-   Save the downloaded JSON in this folder as `client_secret.json`.
-3. Run:
-   ```bash
-   pip install google-api-python-client google-auth-oauthlib
-   python jobs.py ingest-inbox --gmail
+**Automatic, read-only (Gmail, 5 minutes):**
+1. Turn on 2-Step Verification for your Google account, then create an **app password** at
+   https://myaccount.google.com/apppasswords (name it "Career Agent").
+2. In `.env` add:
    ```
-   A browser window asks you to allow **read-only** access. After that it runs without asking.
+   GMAIL_ADDRESS=you@gmail.com
+   GMAIL_APP_PASSWORD=the 16-letter app password
+   ```
+Every run (and **Read alert emails** on the dashboard) then reads the last 3 days of alert emails from LinkedIn,
+Naukri, foundit, Instahyre, Wellfound, Cutshort, hirist and iimjobs. The mailbox is opened read-only: nothing is
+marked read, moved or sent. Remove the two lines (or revoke the app password) to stop it.
 
-Alert emails contain only the job title and link. Those jobs show under **Need the job description**: paste the
-description on the job page (or `python jobs.py attach J0005`) and it is scored.
+**Without Gmail access:** open an alert email, use **⋮ → Download message** to save a `.eml` file into `inbox/`,
+then click **Read alert emails** (or `python jobs.py ingest-inbox`).
+
+Alert emails contain only the job title and link. Those jobs show under **Need the job description**: open the link
+and use the **Save to Career Agent** bookmark (below), or paste the description on the job page.
+
+### Telegram job groups
+1. In **Telegram Desktop**, open the group, then **⋮ → Export chat history**. Untick photos and other media, set
+   **Format: Machine-readable JSON** and a date range of the last week or two, and save it into this project's
+   `inbox/` folder.
+2. Click **Read alert emails** on the dashboard (or `python jobs.py ingest-inbox`, or wait for the next run).
+
+Every job link posted in the last 14 days becomes a job (links to Telegram, WhatsApp and social sites are ignored).
+A post with the full description is scored straight away; a short post waits under **Need the job description**.
+Re-exporting the same group later is fine: jobs already seen are skipped. No Telegram login, bot or automation is used.
+
+### Save to Career Agent: any job page, one click (LinkedIn included)
+On the dashboard's **Add job** page, drag the **Save to Career Agent** button to your browser's bookmarks bar. When
+you're viewing a job (on LinkedIn, Naukri, a company site...), click it: Add job opens with the link, title, company
+and description filled in, ready for **Tailor resume and apply**. It only copies the page you're looking at when you
+click it, like copy and paste. The agent never visits LinkedIn or Naukri itself, and those jobs are never auto-applied.
+
+**Why there's no automatic LinkedIn scraping:** LinkedIn restricts accounts for automated reading as well as for
+automated applying, and it's against their terms. Alerts plus this button give you the same jobs without that risk.
 
 To run the whole agent every morning, see **Daily routine** above.
 
@@ -312,11 +356,13 @@ start-dashboard.bat           double-click to start the dashboard (Windows)
 ui/app.py                     dashboard (python jobs.py ui)
 profile/baseline.example.yaml example profile (a made-up person); yours is profile/baseline.yaml
 config/*.example.yaml         example job sources and form answers; yours are config/sources.yaml, answers.yaml
-inbox/                        drop job-alert .eml files here
+inbox/                        drop job-alert .eml files and Telegram chat exports (.json) here
 career/
   profile.py                  loads your profile; finds your files or the examples
   keywords.py  fit.py         free keyword score and rule checks
   analyze.py   llm.py         tailoring with Gemini
+  marketpay.py                usual pay for a role at your level (expected-salary answer)
+  jdsummary.py                "At a glance" summary of a job description
   guard.py                    truthfulness guard
   resume.py  render.py        resume model, PDF + Word output, one-page fitting
   forms.py  answers.py        application-form answers
@@ -324,8 +370,8 @@ career/
   agent.py                    the loop: find -> tailor -> apply -> hand off; and apply-now for one job
   packet.py                   builds the resume + report + answers for one job
   autoapply.py                fills and submits forms in a browser; hands off when unsure
-  sources.py  pipeline.py     job boards, career pages, alert emails; de-duplicate and score
-  gmail.py                    optional read-only Gmail reader
+  sources.py  pipeline.py     job boards, career pages, alert emails, Telegram exports; de-duplicate and score
+  gmail.py                    optional read-only Gmail reader (app password or Google API)
   taxonomy.py                 skills dictionary used for matching
 tests/                        fake Gemini and practice forms on localhost; no real site is contacted
 ```

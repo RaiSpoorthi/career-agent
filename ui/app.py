@@ -21,7 +21,6 @@ import yaml
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
 from jinja2 import DictLoader
 
-from career import keywords
 from career.profile import ROOT, Profile, personal_file, profile_path
 from career.tracker import DEFAULT_SETTINGS, STATUSES, SUBMITTED, Tracker
 
@@ -38,10 +37,15 @@ SETTING_HELP = {
                     "reason, and are never submitted for you). APPLY: only jobs that meet every rule."),
     "max_packets_per_run": ("Resumes tailored per run", None, "Each one is a Gemini call. The free tier has a "
                             "daily limit."),
+    "ats_target": ("ATS target", None, "When Gemini's ATS estimate is below this, one more pass tries to raise it "
+                   "using only what your profile backs (one extra Gemini call). 0 = off."),
     "gemini_gap_seconds": ("Pause between Gemini calls (seconds)", None, ""),
     "max_applications_per_day": ("Automatic submissions per day", None, "A low number keeps this a personal job "
                                  "search, not a bulk sender."),
     "use_gemini": ("Tailor resumes with Gemini", ["on", "off"], "off: use your base resume unchanged."),
+    "market_pay": ("Expected salary from market pay", ["on", "off"],
+                   "on: Gemini estimates the usual pay for each role at your level (one extra call); the expected-"
+                   "salary answer uses it, never below your own floor, with \"(open to discussion)\"."),
     "tick_consent_boxes": ("Tick required privacy/consent boxes for me", ["off", "on"],
                            "off: a form with a required consent box is handed to you."),
     "headless": ("Hide the browser during automatic runs", ["off", "on"], ""),
@@ -53,6 +57,11 @@ LINK_HELP = {"supported": "a public form the agent can fill in.",
              "none": "none saved. Apply with the packet wherever you found the job."}
 FIT_ORDER = {"APPLY": 0, "REVIEW": 1, "": 2, "SKIP": 3}
 ACTIVE = ("awaiting-human", "packet-ready", "discovered", "needs-description")
+JOB_TABS = {  # Jobs page tabs: label, statuses
+    "open": ("Open", ACTIVE),
+    "applied": ("Applied", ("completed-manual", "applied-auto", "interview", "offer", "rejected", "withdrawn")),
+    "skipped": ("Skipped", ("skipped",)),
+}
 
 
 def _question_label(pattern: str) -> str:
@@ -110,6 +119,13 @@ textarea.code{font:12px/1.5 ui-monospace,Consolas,monospace;min-height:260px}
 .steps{display:flex;gap:24px;flex-wrap:wrap;counter-reset:s}.steps div{flex:1;min-width:200px;font-size:13px}
 .steps div::before{counter-increment:s;content:counter(s);display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700;margin-right:8px}
 details summary{cursor:pointer;color:var(--accent);font-weight:600}details .chip{margin:8px 6px 0 0}
+.glance .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:12px}
+.glance .facts div{background:var(--bg);border-radius:8px;padding:8px 12px}.glance .facts span{display:block;font-size:12px;color:var(--muted)}
+.glance h3{font-size:14px;margin:8px 0 4px}.glance ul{margin:0;padding-left:18px}.glance li{margin:3px 0}
+.glance .chip{margin:0 4px 4px 0}
+.tabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid var(--line)}
+.tabs a{padding:8px 14px;color:var(--muted);text-decoration:none;font-weight:600;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs a.on{color:var(--ink);border-bottom-color:var(--accent)}
 label.field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}label.field input{width:100%}
 iframe.preview{width:100%;height:760px;border:1px solid var(--line);border-radius:8px;background:#fff}
 @media(max-width:800px){.g4,.g2,.g5{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr}.skill{grid-template-columns:1fr}
@@ -168,6 +184,7 @@ document.getElementById('tasklog').textContent='\n'+r.tail;if(!r.running){clearI
 <h1>Needs you</h1><div class="muted" style="margin-bottom:16px">Applications the agent could not finish alone. "Take over" opens the form in a browser on this computer with everything it can answer already filled in; you finish and press Submit.</div>
 {% for r in rows %}<div class="card"><div class="row" style="justify-content:space-between">
 <div><a href="{{ url_for('job', job_id=r.id) }}"><b>{{ r.role }}</b></a> · {{ r.company }} <span class="note">· {{ r.location }} · pay {{ r.salary or 'not stated' }} · {{ r.id }} · keyword {{ r.keyword_score }}%</span>
+{% if r.glance %}<div class="note" style="margin-top:4px">{{ r.glance }}</div>{% endif %}
 <div class="warn" style="margin-top:4px">{{ r.handoff_reason or 'Waiting for you.' }}</div></div>
 <div class="row">
 {% if r.automatable %}<form method="post" action="{{ url_for('takeover', job_id=r.id) }}" class="inline"><button>Take over</button></form>
@@ -206,21 +223,36 @@ document.getElementById('tasklog').textContent='\n'+r.tail;if(!r.running){clearI
 
     "jobs.html": """{% extends 'base.html' %}{% block body %}
 <div class="row" style="justify-content:space-between;margin-bottom:12px"><h1>Jobs</h1>
-<form class="inline" method="get">
-<select name="status"><option value="">All statuses</option>{% for s in statuses %}<option {{ 'selected' if s==status }}>{{ s }}</option>{% endfor %}</select>
+<form class="inline" method="get"><input type="hidden" name="tab" value="{{ tab }}">
+<input type="search" name="q" value="{{ q }}" placeholder="Search role, company, location, skill…" style="width:280px" aria-label="Search jobs">
 <select name="fit"><option value="">Any fit</option>{% for f in ['APPLY','REVIEW','SKIP'] %}<option {{ 'selected' if f==fit }}>{{ f }}</option>{% endfor %}</select>
-<button class="ghost">Filter</button></form></div>
+<button class="ghost">Search</button>{% if q or fit %}<a class="note" href="{{ url_for('jobs', tab=tab) }}">clear</a>{% endif %}</form></div>
+<div class="tabs">{% for key, label in tab_labels.items() %}<a href="{{ url_for('jobs', tab=key, q=q, fit=fit) }}" class="{{ 'on' if key==tab }}">{{ label }} <span class="chip">{{ tab_counts[key] }}</span></a>{% endfor %}</div>
+{% if tab == 'applied' %}
+<div class="card" style="padding:0;overflow-x:auto"><table>
+<tr><th>Role · Company</th><th>Applied on</th><th>Status</th><th>Pay</th><th>ATS</th><th>Packet</th><th>Listing</th></tr>
+{% for r in rows %}<tr><td><a href="{{ url_for('job', job_id=r.id) }}">{{ r.role }}</a><div class="note">{{ r.company }} · {{ r.location }} · {{ r.id }}</div></td>
+<td>{{ r.date_applied or '-' }}</td>
+<td><form method="post" action="{{ url_for('status', job_id=r.id) }}" class="inline"><input type="hidden" name="back" value="applied">
+<select name="status" onchange="this.form.submit()" aria-label="Status of {{ r.id }}">{% for s in applied_statuses %}<option {{ 'selected' if s==r.status }}>{{ s }}</option>{% endfor %}</select></form></td>
+<td>{% if r.salary %}<b>{{ r.salary }}</b>{% elif r.market_pay %}<span class="note" title="Not stated in the posting; Gemini's estimate of usual pay at your level">~{{ r.market_pay }} est.</span>{% else %}<span class="note">not stated</span>{% endif %}</td>
+<td class="num">{{ r.ats_after or r.ats_score or '-' }}</td>
+<td>{% if r.output_dir %}{% for f, label in [('resume.pdf','PDF'),('resume.docx','Word'),('report.md','Report'),('answers.md','Answers')] %}<a href="{{ url_for('packet_file', job_id=r.id, name=f) }}" target="_blank">{{ label }}</a>{{ ' · ' if not loop.last }}{% endfor %}{% else %}-{% endif %}</td>
+<td>{% if r.url %}<a href="{{ r.url }}" target="_blank" rel="noopener">open ↗</a>{% else %}-{% endif %}</td></tr>
+{% else %}<tr><td colspan="7" class="muted">{{ 'No applied jobs match.' if q or fit else 'Nothing applied yet. Jobs move here when you press "I submitted it" or "Mark applied".' }}</td></tr>{% endfor %}</table></div>
+{% else %}
 <div class="card" style="padding:0;overflow-x:auto"><table>
 <tr><th>ID</th><th>Role · Company</th><th>Pay</th><th>Source</th><th>Fit</th><th>Keywords</th><th>ATS before→after</th><th>Shortlist est.</th><th>Status</th><th>Applied on</th><th>Resume</th></tr>
 {% for r in rows %}<tr><td><a href="{{ url_for('job', job_id=r.id) }}">{{ r.id }}</a></td>
 <td><a href="{{ url_for('job', job_id=r.id) }}">{{ r.role }}</a><div class="note">{{ r.company }} · {{ r.location }}</div></td>
-<td>{% if r.salary %}<b>{{ r.salary }}</b>{% else %}<span class="note">not stated</span>{% endif %}</td>
+<td>{% if r.salary %}<b>{{ r.salary }}</b>{% elif r.market_pay %}<span class="note" title="Not stated in the posting; Gemini's estimate of usual pay at your level">~{{ r.market_pay }} est.</span>{% else %}<span class="note">not stated</span>{% endif %}</td>
 <td class="note">{{ r.source or 'manual' }}</td><td><span class="chip {{ r.fit }}">{{ r.fit or '?' }}</span></td>
 <td class="num">{{ r.keyword_score }}%</td><td class="num">{{ r.ats_before or '-' }} → {{ r.ats_after or r.ats_score or '-' }}</td>
 <td class="num">{{ r.shortlist_pct ~ '%' if r.shortlist_pct else '-' }}</td><td><span class="chip">{{ r.status }}</span></td>
 <td>{{ r.date_applied or '-' }}</td>
 <td>{% if r.output_dir %}<a href="{{ url_for('packet_file', job_id=r.id, name='resume.pdf') }}" target="_blank">PDF</a>{% else %}-{% endif %}</td></tr>
 {% else %}<tr><td colspan="11" class="muted">No jobs match.</td></tr>{% endfor %}</table></div>
+{% endif %}
 <div class="note">Pay is read from the posting; most don't state it. ATS and shortlist numbers are Gemini's estimates, not real probabilities. Keyword % is an exact-match count done on your computer.</div>
 {% endblock %}""",
 
@@ -236,6 +268,21 @@ document.getElementById('tasklog').textContent='\n'+r.tail;if(!r.running){clearI
 <div class="card stat"><span>Shortlist (estimate)</span><b>{{ r.shortlist_pct ~ '%' if r.shortlist_pct else '-' }}</b></div>
 </div>
 {% if r.notes %}<div class="card"><h2>Check first</h2>{{ r.notes }}</div>{% endif %}
+{% if glance %}<div class="card glance"><h2>At a glance</h2>
+<div class="facts"><div><span>Experience asked</span><b>{{ glance.years }}</b></div>
+<div><span>Pay</span><b>{{ glance.pay if glance.pay != 'not stated' else 'not stated' }}</b></div>
+<div><span>Location</span><b>{{ glance.location or 'not stated' }}{{ ' · remote' if glance.remote }}</b></div>
+{% if market %}<div><span>Market pay (estimate)</span><b>{{ market.label }}</b></div>{% endif %}
+{% if glance.seniority %}<div><span>Level</span><b>{{ glance.seniority }}</b></div>{% endif %}</div>
+{% if glance.must_have_skills %}<p><b>Must-have skills:</b> {% for s in glance.must_have_skills %}<span class="chip">{{ s }}</span> {% endfor %}</p>{% endif %}
+{% if glance.nice_skills %}<p><b>Nice to have:</b> {% for s in glance.nice_skills %}<span class="chip">{{ s }}</span> {% endfor %}</p>{% endif %}
+<div class="kw"><p><b>You have:</b> {% for k in glance.skills_have %}<span class="chip APPLY">{{ k }}</span>{% else %}-{% endfor %}</p>
+{% if glance.skills_coursework %}<p><b>Coursework only:</b> {% for k in glance.skills_coursework %}<span class="chip REVIEW">{{ k }}</span>{% endfor %}</p>{% endif %}
+<p><b>Missing:</b> {% for k in glance.skills_missing %}<span class="chip SKIP">{{ k }}</span>{% else %}-{% endfor %}</p></div>
+<div class="grid g2">{% if glance.duties %}<div><h3>What you'd do</h3><ul>{% for d in glance.duties %}<li>{{ d }}</li>{% endfor %}</ul></div>{% endif %}
+{% if glance.required %}<div><h3>What they ask for</h3><ul>{% for d in glance.required %}<li>{{ d }}</li>{% endfor %}</ul></div>{% endif %}
+{% if glance.nice %}<div><h3>Bonus points</h3><ul>{% for d in glance.nice %}<li>{{ d }}</li>{% endfor %}</ul></div>{% endif %}</div>
+<p class="note">Taken from the posting{{ " and Gemini's reading of it" if glance.must_have_skills }}. Missing skills are never added to your resume; they go to Learn next.</p></div>{% endif %}
 
 {% if r.status == 'needs-description' %}
 <div class="card"><h2>Paste the job description</h2>
@@ -304,14 +351,9 @@ try{await navigator.clipboard.writeText(b.dataset.v);const t=b.textContent;b.tex
 <form method="post" action="{{ url_for('status', job_id=r.id) }}" class="inline"><select name="status">{% for s in statuses %}<option {{ 'selected' if s==r.status }}>{{ s }}</option>{% endfor %}</select>
 <input name="note" placeholder="note (optional)"><button class="ghost">Update</button></form></div></div>
 
-{% if kw %}<div class="card kw"><h2>Keywords in this job</h2>
-<p><b>You have:</b> {% for k in kw.matched %}<span class="chip APPLY">{{ k }}</span>{% else %}-{% endfor %}</p>
-{% if kw.partial %}<p><b>Coursework only:</b> {% for k in kw.partial %}<span class="chip REVIEW">{{ k }}</span>{% endfor %}</p>{% endif %}
-<p><b>Missing:</b> {% for k in kw.missing %}<span class="chip SKIP">{{ k }}</span>{% else %}-{% endfor %}</p>
-<p class="note">Missing skills are never added to your resume. They go to "Learn next".</p></div>{% endif %}
 {% if history %}<div class="card"><h2>History</h2><pre>{% for e in history %}{{ e.ts }}  {{ e.message }}
 {% endfor %}</pre></div>{% endif %}
-<div class="card"><h2>Job description</h2><pre>{{ jd }}</pre></div>
+<div class="card"><details{{ ' open' if not glance }}><summary><b>Full job description</b></summary><pre style="margin-top:10px">{{ jd }}</pre></details></div>
 {% endblock %}""",
 
     "add.html": """{% extends 'base.html' %}{% block body %}
@@ -338,6 +380,15 @@ resume with Gemini. {{ next_step }}</div>
 your account. You get the packet to apply yourself.</p>
 <p class="note">Change apply mode in <a href="{{ url_for('settings') }}">Settings</a>.</p></div>
 </div>
+<div class="card"><h2>Save jobs from LinkedIn, Naukri or any job site in one click</h2>
+<p>Drag this button to your browser's bookmarks bar (press <b>Ctrl+Shift+B</b> if you don't see the bar):
+<a class="btn" title="Drag me to the bookmarks bar" onclick="alert('Drag this button to your bookmarks bar, then click it while viewing a job.');return false"
+href="javascript:(function(){var s=String(window.getSelection()).trim();var m=document.querySelector('main');var t=s.length>200?s:((m&amp;&amp;m.innerText)||document.body.innerText);var p=document.title.replace(/^[(][0-9]+[)] */,'').split(/ [|–-] /);window.open('{{ request.host_url }}add?url='+encodeURIComponent(location.href)+'&amp;role='+encodeURIComponent(p[0]||'')+'&amp;company='+encodeURIComponent(p.length>2?p[1]:'')+'&amp;text='+encodeURIComponent(t.slice(0,12000)),'_blank')})()">Save to Career Agent</a></p>
+<ol class="note" style="font-size:13px"><li>Open a job on LinkedIn, Naukri or any site, the same way you always do (for example from a LinkedIn alert email).</li>
+<li>Click <b>Save to Career Agent</b> in your bookmarks bar. This page opens with the link, title, company and description filled in.
+If the description picks up extra page text, select just the description first, then click the bookmark.</li>
+<li>Check the fields and press <b>Tailor resume and apply</b>. Jobs from LinkedIn and Naukri are never opened by the agent: you get the tailored packet and apply there yourself.</li></ol>
+<p class="note">The bookmark only copies what is on the page you're looking at, when you click it, like copy and paste. The agent never visits LinkedIn or Naukri itself.</p></div>
 {% endblock %}""",
 
     "gaps.html": """{% extends 'base.html' %}{% macro skill_row(s) %}<div class="skill">
@@ -453,18 +504,41 @@ def create_app(root: Path = ROOT) -> Flask:
     @app.get("/needs")
     def needs():
         from career.autoapply import host_kind
+        from career.jdsummary import summarize
+        from career.packet import _saved
+
+        prof = profile()
         waiting = tracker.rows("awaiting-human")
         for r in waiting:
             r["automatable"] = host_kind(r["apply_url"] or r["url"]) in ("supported", "unsupported")
+            path = tracker.jd_dir / f"{r['id']}.txt"
+            r["glance"] = (summarize(prof, path.read_text(encoding="utf-8"), r["location"], r["role"],
+                                     _saved(tracker, r)).one_line if path.exists() else "")
         return render_template("needs.html", active="needs", rows=waiting)
 
     @app.get("/jobs")
     def jobs():
-        status, fit = request.args.get("status", ""), request.args.get("fit", "")
-        selected = [r for r in rows() if (not status or r["status"] == status) and (not fit or r["fit"] == fit)]
-        selected.sort(key=lambda r: (ACTIVE.index(r["status"]) if r["status"] in ACTIVE else 9,
-                                     FIT_ORDER.get(r["fit"], 2), -int(r["keyword_score"] or 0)))
-        return render_template("jobs.html", active="jobs", rows=selected, statuses=STATUSES, status=status, fit=fit)
+        tab = request.args.get("tab", "open")
+        tab = tab if tab in JOB_TABS else "open"
+        q, fit, status = (request.args.get(k, "").strip() for k in ("q", "fit", "status"))
+        words = q.lower().split()
+
+        def matches(r: dict[str, str]) -> bool:
+            blob = " ".join(r[k] for k in ("id", "role", "company", "location", "status", "salary", "notes",
+                                           "source", "track")).lower()
+            return all(w in blob for w in words) and (not fit or r["fit"] == fit) and (not status or
+                                                                                       r["status"] == status)
+        found = [r for r in rows() if matches(r)]
+        counts = {key: sum(1 for r in found if r["status"] in statuses) for key, (_, statuses) in JOB_TABS.items()}
+        selected = [r for r in found if r["status"] in JOB_TABS[tab][1]]
+        if tab == "applied":
+            selected.sort(key=lambda r: r["date_applied"] or r["updated"], reverse=True)
+        else:
+            selected.sort(key=lambda r: (ACTIVE.index(r["status"]) if r["status"] in ACTIVE else 9,
+                                         FIT_ORDER.get(r["fit"], 2), -int(r["keyword_score"] or 0)))
+        return render_template("jobs.html", active="jobs", rows=selected, statuses=STATUSES, fit=fit, q=q, tab=tab,
+                               tab_labels={k: label for k, (label, _) in JOB_TABS.items()}, tab_counts=counts,
+                               applied_statuses=JOB_TABS["applied"][1])
 
     @app.get("/job/<job_id>")
     def job(job_id):
@@ -473,33 +547,37 @@ def create_app(root: Path = ROOT) -> Flask:
             r = tracker.get(job_id)
         except KeyError:
             abort(404)
+        from career import fit as fitmod
+        from career.jdsummary import summarize
+
+        prof = profile()
         jd = tracker.jd_text(r["id"]) if (tracker.jd_dir / f"{r['id']}.txt").exists() else ""
-        kw = keywords.match(profile(), jd) if r["status"] != "needs-description" else None
         folder = root / r["output_dir"] if r["output_dir"] else None
         files = sorted(f for f in PACKET_FILES if folder and (folder / f).exists())
         kind = host_kind(r["apply_url"] or r["url"])
-        revisions = []
+        saved: dict = {}
         if folder and (folder / "analysis.json").exists():
             try:
                 saved = json.loads((folder / "analysis.json").read_text(encoding="utf-8"))
-                revisions = (saved.get("model_output") or {}).get("revisions") or []
             except (ValueError, OSError):
-                pass
+                saved = {}
+        revisions = (saved.get("model_output") or {}).get("revisions") or []
+        market = saved.get("market_pay") or None
+        glance = (summarize(prof, jd, r["location"], r["role"], saved)
+                  if jd and r["status"] != "needs-description" else None)
         answers, cover = [], ""
         if r["output_dir"] and jd:
             from career import answers as ans
-            from career import fit as fitmod
             from career.forms import answer_rows
             from career.packet import cover_note
 
-            prof = profile()
-            answers = answer_rows(prof, fitmod.check(prof, jd, r["location"], r["role"]))
+            answers = answer_rows(prof, fitmod.check(prof, jd, r["location"], r["role"]), market)
             extra = ans.load_extra(personal_file(ans.ANSWERS_FILE, root))
             answers += [(_question_label(i["question"]), str(i["answer"])) for i in extra.get("answers") or []
                         if i.get("question") and str(i.get("answer") or "").strip()]
             cover = cover_note(tracker, r)
-        return render_template("job.html", active="jobs", r=r, jd=jd, kw=kw, statuses=STATUSES, files=files,
-                               revisions=revisions, answers=answers, cover=cover,
+        return render_template("job.html", active="jobs", r=r, jd=jd, glance=glance, market=market,
+                               statuses=STATUSES, files=files, revisions=revisions, answers=answers, cover=cover,
                                submitted=SUBMITTED, history=list(reversed(tracker.events(40, job_id=r["id"]))),
                                automatable=kind in ("supported", "unsupported"), link_help=LINK_HELP[kind],
                                today=datetime.now().strftime("%Y-%m-%d"))
@@ -525,7 +603,9 @@ def create_app(root: Path = ROOT) -> Flask:
     @app.route("/add", methods=["GET", "POST"])
     def add_job():
         from career import pipeline
-        form = {k: request.form.get(k, "") for k in ("url", "company", "role", "location", "text")}
+        # GET with values = the "Save to Career Agent" bookmark: it only pre-fills the form for you to check.
+        source = request.form if request.method == "POST" else request.args
+        form = {k: source.get(k, "")[:20000] for k in ("url", "company", "role", "location", "text")}
         mode = tracker.setting("apply_mode")
         next_step = {"review": "It opens the application form filled in; you check it and press Submit.",
                      "auto": "It fills and submits the form if every required question is answered; anything "
@@ -599,6 +679,8 @@ def create_app(root: Path = ROOT) -> Flask:
             flash(str(exc))
         if request.form.get("back") == "needs":
             return redirect(url_for("needs"))
+        if request.form.get("back") == "applied":
+            return redirect(url_for("jobs", tab="applied"))
         return redirect(url_for("job", job_id=job_id))
 
     @app.get("/job/<job_id>/file/<name>")

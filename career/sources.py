@@ -1,8 +1,9 @@
-"""Job sources: public job boards, public career pages, and job-alert emails.
+"""Job sources: public job boards, public career pages, job-alert emails and Telegram chat exports.
 
 Rules this module follows:
   * Only public endpoints. No logins, no cookies, no account-based access.
-  * LinkedIn and Naukri pages are never fetched. Only the links inside alert emails you received are read.
+  * LinkedIn and Naukri pages are never fetched. Only the links inside alert emails you received, or Telegram
+    exports you made yourself, are read.
   * Career pages are fetched only if robots.txt allows it, with a delay between requests.
 """
 
@@ -17,6 +18,7 @@ import urllib.error
 import urllib.request
 import urllib.robotparser
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from email import policy
 from html.parser import HTMLParser
 from pathlib import Path
@@ -317,8 +319,92 @@ def parse_alert_eml(raw: bytes) -> list[Job]:
     return list(jobs.values())
 
 
+# ---------------------------------------------------------------------------
+# Telegram groups: from a chat export you make yourself in Telegram Desktop
+# (group -> menu -> Export chat history -> format JSON). No login, no bot, no automation.
+# ---------------------------------------------------------------------------
+TG_URL = re.compile(r"https?://[^\s<>\"'\])]+")
+TG_SKIP_HOSTS = ("t.me", "telegram.", "whatsapp.", "youtube.", "youtu.be", "instagram.", "facebook.", "twitter.",
+                 "x.com", "discord.", "play.google.", "apps.apple.")
+TG_FIELD = r"\s*[:\-–]\s*(.+)"
+TG_DAYS = 14
+
+
+def _tg_text(message: dict) -> tuple[str, list[str]]:
+    """Plain text of a Telegram export message, and every link in it (including hidden 'text_link' ones)."""
+    parts = message.get("text") or ""
+    if isinstance(parts, str):
+        parts = [parts]
+    text, links = "", []
+    for part in parts:
+        if isinstance(part, str):
+            text += part
+        else:
+            text += part.get("text", "")
+            if part.get("href"):
+                links.append(part["href"])
+    links += TG_URL.findall(text)
+    return text, list(dict.fromkeys(u.rstrip(".,;") for u in links))
+
+
+def _tg_clean(line: str) -> str:
+    line = TG_URL.sub("", line)
+    line = re.sub(r"^[\W_]+|[\W_]+$", "", line)  # leading/trailing emoji, bullets, punctuation
+    line = re.sub(r"^\d{1,2}[.)]\s*", "", line)  # "1. IAM Engineer" in a numbered list
+    line = re.sub(r"^(hiring|job alert|new job|opening|job opening|urgent(ly)? hiring)\s*[:!\-–|]*\s*", "", line,
+                  flags=re.I)
+    return re.sub(r"\s+", " ", line).strip()[:100]
+
+
+def _tg_field(text: str, names: str) -> str:
+    m = re.search(rf"(?im)^[\W_]*(?:{names}){TG_FIELD}$", text)
+    return _tg_clean(m.group(1)) if m else ""
+
+
+def parse_telegram_export(data: dict, max_age_days: int = TG_DAYS, today: datetime | None = None) -> list[Job]:
+    """Jobs from a Telegram Desktop chat export (result.json). One job per application link."""
+    chats = data.get("chats", {}).get("list") if "chats" in data else [data]
+    since = (today or datetime.now()) - timedelta(days=max_age_days)
+    jobs: dict[str, Job] = {}
+    for chat in chats or []:
+        group = chat.get("name") or "Telegram"
+        for message in chat.get("messages") or []:
+            if message.get("type", "message") != "message":
+                continue
+            try:
+                if datetime.fromisoformat(str(message.get("date", ""))[:19]) < since:
+                    continue
+            except ValueError:
+                pass
+            text, links = _tg_text(message)
+            links = [u for u in links if not any(h in (urlparse(u).hostname or "") for h in TG_SKIP_HOSTS)]
+            if not links:
+                continue
+            lines = [ln for ln in text.splitlines() if ln.strip()]
+            role = _tg_field(text, "role|position|designation|job title|title")
+            company = _tg_field(text, "company|company name|organi[sz]ation|employer")
+            location = _tg_field(text, "location|job location|work location|place")
+            headline = next((_tg_clean(ln) for ln in lines if _tg_clean(ln)), "")
+            for url in links:
+                canon = _canonical(url)
+                url_, source = canon if canon else (url, "telegram")
+                if url_ in jobs:
+                    continue
+                if len(links) > 1:  # a list of jobs: each line names its own job
+                    own = next((_tg_clean(ln) for ln in lines if url in ln and _tg_clean(ln)), "")
+                    title = own or role or headline
+                else:
+                    title = role or headline
+                description = text if len(links) == 1 else ""
+                jobs[url_] = Job(source=source, title=title or "(see the Telegram post)", company=company,
+                                 url=url_, location=location, description=description,
+                                 extra={"subject": f"Telegram: {group}", "apply_url": url if source == "telegram"
+                                        else ""})
+    return list(jobs.values())
+
+
 def read_inbox(folder: Path) -> tuple[list[Job], list[str]]:
-    """Parse every .eml in the folder, then move each file to folder/processed."""
+    """Parse every alert email (.eml) and Telegram export (.json) in the folder, then move each to folder/processed."""
     folder.mkdir(parents=True, exist_ok=True)
     processed = folder / "processed"
     processed.mkdir(exist_ok=True)
@@ -330,4 +416,14 @@ def read_inbox(folder: Path) -> tuple[list[Job], list[str]]:
             notes.append(f"{path.name}: no LinkedIn or Naukri job links found")
         jobs.extend(found)
         path.replace(processed / path.name)
+    for path in sorted([*folder.glob("*.json"), *folder.glob("telegram/*.json")]):
+        try:
+            found = parse_telegram_export(json.loads(path.read_text(encoding="utf-8")))
+        except (ValueError, AttributeError) as exc:
+            notes.append(f"{path.name}: not a Telegram chat export ({type(exc).__name__})")
+            continue
+        if not found:
+            notes.append(f"{path.name}: no job links in the last {TG_DAYS} days of this Telegram export")
+        jobs.extend(found)
+        path.replace(processed / f"{datetime.now():%Y%m%d-%H%M%S}-{path.name}")
     return jobs, notes

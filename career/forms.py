@@ -8,8 +8,16 @@ from career.profile import Profile
 SYMBOL = {"USD": "$", "GBP": "£", "EUR": "€"}
 
 
-def expected_salary(profile: Profile, fit: FitReport) -> str:
-    """From `expected_salary` (your own words, for home-country jobs) or your salary floors."""
+def expected_salary(profile: Profile, fit: FitReport, market: dict | None = None) -> str:
+    """Your expected-salary answer.
+
+    With a market estimate (career/marketpay.py, a web search for this role and city): its midpoint, never
+    below your own floor, "(open to discussion)". Otherwise `expected_salary` (your words, home-country jobs)
+    or your salary floors.
+    """
+    from_market = _from_market(profile, market)
+    if from_market:
+        return from_market
     floors = salary_floors(profile)
     if fit.abroad:
         currency = fit.salary.split()[0] if fit.salary[:3] in SYMBOL else None
@@ -27,8 +35,20 @@ def expected_salary(profile: Profile, fit: FitReport) -> str:
     return "Open to discussion"
 
 
-def answers_markdown(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str = "") -> str:
-    rows = answer_rows(profile, fit)
+def _from_market(profile: Profile, market: dict | None) -> str:
+    if not market or not market.get("unit"):
+        return ""
+    unit, mid = market["unit"], (float(market["low"]) + float(market["high"])) / 2
+    if unit == "LPA":
+        amount = max(round(mid * 2) / 2, float(lpa_salary_floor(profile) or 0))
+        return f"{amount:g} LPA (open to discussion)"
+    amount = max(round(mid / 1000) * 1000, float(salary_floors(profile).get(unit) or 0))
+    return f"{unit} {amount:,.0f} per year (open to discussion)"
+
+
+def answers_markdown(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str = "",
+                     market: dict | None = None) -> str:
+    rows = answer_rows(profile, fit, market)
     lines = [f"# Application answers: {job.get('role', '')} @ {job.get('company', '')}", "",
              f"Link: {job.get('url') or '-'}", "",
              "| Question | Answer |", "|---|---|"]
@@ -39,12 +59,17 @@ def answers_markdown(profile: Profile, job: dict[str, str], fit: FitReport, cove
               "- Read the tailored resume once. You must be able to explain every line in an interview.",
               "- Upload `resume.pdf` unless the site asks for Word (use `resume.docx`).",
               "- After submitting: `python jobs.py status " + job.get("id", "<id>") + " applied`", ""]
+    if market:
+        lines += ["## Market pay (estimate)",
+                  f"{market['label']}{' (web search)' if market.get('searched') else ' (Gemini, no web search)'}: "
+                  f"{market.get('basis', '')}",
+                  *[f"- [{s.get('title') or s['url']}]({s['url']})" for s in market.get("sources") or []], ""]
     if fit.reasons:
         lines += ["## Check first", *[f"- {r}" for r in fit.reasons], ""]
     return "\n".join(lines)
 
 
-def answer_rows(profile: Profile, fit: FitReport) -> list[tuple[str, str]]:
+def answer_rows(profile: Profile, fit: FitReport, market: dict | None = None) -> list[tuple[str, str]]:
     """The usual application questions with your answers, from your profile (for answers.md and the dashboard)."""
     c = profile.contact
     p = profile.preferences
@@ -65,5 +90,5 @@ def answer_rows(profile: Profile, fit: FitReport) -> list[tuple[str, str]]:
         ("Requires sponsorship?", "Yes" if fit.abroad else f"No (for roles in {home_country(profile)})"),
         ("Willing to relocate?", "Yes, with visa sponsorship" if fit.abroad
          else f"Based in {c['location']}; open to remote"),
-        ("Expected salary", expected_salary(profile, fit)),
+        ("Expected salary", expected_salary(profile, fit, market)),
     ]

@@ -23,14 +23,23 @@ def packet_folder(tracker: trk.Tracker, row: dict[str, str]) -> Path:
     return tracker.root / "output" / f"{row['id']}_{trk.slug(row['company'], 20)}_{trk.slug(row['role'], 30)}"
 
 
-def cover_note(tracker: trk.Tracker, row: dict[str, str]) -> str:
+def _saved(tracker: trk.Tracker, row: dict[str, str]) -> dict:
     path = tracker.root / row["output_dir"] / "analysis.json" if row.get("output_dir") else None
     if not path or not path.exists():
-        return ""
+        return {}
     try:
-        return (json.loads(path.read_text(encoding="utf-8")).get("model_output") or {}).get("cover_note", "") or ""
+        return json.loads(path.read_text(encoding="utf-8"))
     except (ValueError, OSError):
-        return ""
+        return {}
+
+
+def cover_note(tracker: trk.Tracker, row: dict[str, str]) -> str:
+    return (_saved(tracker, row).get("model_output") or {}).get("cover_note", "") or ""
+
+
+def market_pay(tracker: trk.Tracker, row: dict[str, str]) -> dict | None:
+    """The market pay estimate saved with this job's packet, if any."""
+    return _saved(tracker, row).get("market_pay") or None
 
 
 def build_packet(tracker: trk.Tracker, profile: Profile, job_id: str, *, offline: bool = False,
@@ -48,9 +57,13 @@ def build_packet(tracker: trk.Tracker, profile: Profile, job_id: str, *, offline
     track = track or row["track"]
 
     extra: dict[str, str] = {}
-    cover, ats = "", ""
+    cover, ats, market = "", "", None
     if offline:
-        doc = layout(profile, base_content(profile, track), international)
+        from career.keywords import add_supported_skills
+
+        content = base_content(profile, track)
+        add_supported_skills(profile, content, text)
+        doc = layout(profile, content, international)
         (folder / "report.md").write_text(
             f"# {row['role']} @ {row['company']}\n\nOffline mode: base **{track}** resume, no AI analysis.\n"
             f"Keyword score: {row['keyword_score']}%. Fit: {fit.verdict}.\n", encoding="utf-8")
@@ -70,10 +83,12 @@ def build_packet(tracker: trk.Tracker, profile: Profile, job_id: str, *, offline
             say(f"\nGemini error: {exc}\n\nTip: `python jobs.py apply {row['id']} --offline` still gives you "
                 "the base resume and form answers.")
             return LLM_FAILED
+        result = _improve_if_below_target(tracker, profile, llm, text, result, international, say)
+        market = _estimate_market_pay(tracker, profile, llm, row, fit, say)
         doc, track = result.doc, result.track
         out = result.model_output
         cover = out.get("cover_note", "")
-        extra = _save_analysis(folder, row, result, fit)
+        extra = _save_analysis(folder, row, result, fit, market)
         ats = extra["ats_after"]
         say(f"  ATS (model estimate): {extra['ats_before'] or '-'} -> {ats or '-'}   "
             f"exact keywords: {result.keyword_before}% -> {result.keyword_after}%")
@@ -81,11 +96,11 @@ def build_packet(tracker: trk.Tracker, profile: Profile, job_id: str, *, offline
 
     if not _write_resume_files(tracker, row, folder, doc, say):
         return LAYOUT_FAILED
-    (folder / "answers.md").write_text(answers_markdown(profile, row, fit, cover), encoding="utf-8")
+    (folder / "answers.md").write_text(answers_markdown(profile, row, fit, cover, market), encoding="utf-8")
     rel = folder.relative_to(tracker.root)
     new_status = "packet-ready" if row["status"] == "discovered" else row["status"]
     tracker.update(row["id"], status=new_status, output_dir=str(rel), track=track,
-                   **({"ats_score": ats} if ats else {}), **extra)
+                   market_pay=market["label"] if market else "", **({"ats_score": ats} if ats else {}), **extra)
     tracker.log(f"resume generated ({'offline' if offline else 'gemini'}, {track}) -> {rel}", row["id"])
     say(f"\nReady in {rel}/")
     say("  resume.pdf (1 page), resume.docx, answers.md, report.md")
@@ -124,11 +139,12 @@ def revise_packet(tracker: trk.Tracker, profile: Profile, job_id: str, instructi
         say(f"\nGemini error: {exc}")
         return LLM_FAILED
     latest = result.model_output["revisions"][-1]
-    extra = _save_analysis(folder, row, result, fit)
+    market = previous.get("market_pay")
+    extra = _save_analysis(folder, row, result, fit, market)
     if not _write_resume_files(tracker, row, folder, result.doc, say):
         return LAYOUT_FAILED
     (folder / "answers.md").write_text(
-        answers_markdown(profile, row, fit, result.model_output.get("cover_note", "")), encoding="utf-8")
+        answers_markdown(profile, row, fit, result.model_output.get("cover_note", ""), market), encoding="utf-8")
     tracker.update(row["id"], **({"ats_score": extra["ats_after"]} if extra["ats_after"] else {}), **extra)
     tracker.log(f"resume revised: \"{instruction[:80]}\" (ATS {latest['ats_before'] or '-'} -> "
                 f"{latest['ats_after'] or '-'})", row["id"])
@@ -144,7 +160,69 @@ def revise_packet(tracker: trk.Tracker, profile: Profile, job_id: str, instructi
     return OK
 
 
-def _save_analysis(folder: Path, row: dict[str, str], result, fit) -> dict[str, str]:
+AUTO_IMPROVE = (
+    "(automatic) Raise this resume's ATS match for this job to {target} or more, honestly. Use the job "
+    "description's exact wording for the skills and tools the candidate really has ({have}). Start the headline "
+    "with the job's top requirements that the candidate meets. Put the most relevant job, projects and bullets "
+    "first, choose the bullets that best match the job's responsibilities, and leave out bullets that don't help "
+    "this job.")
+
+
+def _ats(result) -> int:
+    try:
+        return int((result.model_output.get("step8_ats_after") or {}).get("overall") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _improve_if_below_target(tracker: trk.Tracker, profile: Profile, llm, text: str, result, international: bool,
+                             say):
+    """One extra Gemini pass when the ATS estimate is under the `ats_target` setting; keeps the better version."""
+    from career import analyze, keywords
+    from career.llm import LLMError
+
+    try:
+        target = int(tracker.setting("ats_target") or 0)
+    except ValueError:
+        target = 0
+    first = _ats(result)
+    if not target or not first or first >= target:
+        return result
+    say(f"  ATS {first} is under your target of {target}: one more pass to raise it (honestly)...")
+    have = ", ".join(keywords.match(profile, text).matched[:15]) or "see the candidate facts"
+    saved = {"track": result.track, "content": result.content, "model_output": result.model_output,
+             "keyword_before": result.keyword_before, "keyword_after": result.keyword_after}
+    try:
+        improved = analyze.revise(profile, llm, text, saved, AUTO_IMPROVE.format(target=target, have=have),
+                                  international=international)
+    except LLMError as exc:
+        say(f"  The extra pass failed ({str(exc)[:80]}); kept the first version.")
+        return result
+    better = ((_ats(improved) > first and improved.keyword_after >= result.keyword_after - 3)
+              or (_ats(improved) >= first and improved.keyword_after > result.keyword_after))
+    if not better:
+        say(f"  The extra pass didn't do better (ATS {_ats(improved)}, keywords {improved.keyword_after}%); "
+            "kept the first version.")
+        return result
+    say(f"  Improved: ATS {first} -> {_ats(improved)}, exact keywords {result.keyword_after}% -> "
+        f"{improved.keyword_after}%")
+    return improved
+
+
+def _estimate_market_pay(tracker: trk.Tracker, profile: Profile, llm, row: dict[str, str], fit, say) -> dict | None:
+    if tracker.setting("market_pay") != "on":
+        return None
+    from career import marketpay
+
+    years = f"{fit.years_required}+ years" if fit.years_required is not None else "not stated"
+    market = marketpay.estimate(llm, profile, row["role"], row["company"], row["location"], years)
+    if market:
+        how = "web search" if market["searched"] else "Gemini estimate, no web search"
+        say(f"  Market pay for your level: {market['label']} ({how})")
+    return market
+
+
+def _save_analysis(folder: Path, row: dict[str, str], result, fit, market: dict | None = None) -> dict[str, str]:
     """Write report.md and analysis.json; return the scores to store in the tracker."""
     from career import analyze
 
@@ -154,7 +232,7 @@ def _save_analysis(folder: Path, row: dict[str, str], result, fit) -> dict[str, 
     (folder / "analysis.json").write_text(json.dumps({
         "model": result.model_used, "track": result.track, "guard_issues": result.guard_issues,
         "keyword_before": result.keyword_before, "keyword_after": result.keyword_after,
-        "content": result.content, "model_output": out}, indent=2), encoding="utf-8")
+        "content": result.content, "model_output": out, "market_pay": market}, indent=2), encoding="utf-8")
     return {"ats_before": str((out.get("step1_ats_before") or {}).get("overall", "")),
             "ats_after": str((out.get("step8_ats_after") or {}).get("overall", "")),
             "shortlist_pct": str((review.get("probability_percent") or {}).get("shortlist", ""))}

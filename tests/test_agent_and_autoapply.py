@@ -485,6 +485,40 @@ def test_apply_in_own_browser_links_to_the_form_and_shows_answers(client, monkey
     assert opened[0].startswith("J0001_") and t.get("J0001")["apply_method"] == "own-browser"
 
 
+def test_jobs_page_search_and_applied_tab(client):
+    c, t, _ = client
+    add_job(t, url="https://jobs.lever.co/zeta/5", company="Zeta", role="Cloud Analyst")
+    t.update("J0003", status="discovered")
+    t.update("J0001", status="completed-manual", date_applied="2026-11-16", salary="9-12 LPA")
+    open_tab = c.get("/jobs").get_data(as_text=True)
+    assert "Cloud Analyst" in open_tab and "2026-11-16" not in open_tab and 'type="search"' in open_tab
+    applied = c.get("/jobs?tab=applied").get_data(as_text=True)
+    assert "2026-11-16" in applied and "9-12 LPA" in applied and "Report" in applied and "Cloud Analyst" not in applied
+    found = c.get("/jobs?q=zeta+cloud").get_data(as_text=True)
+    assert "Cloud Analyst" in found and "J0002" not in found
+    c.post("/job/J0001/status", data={"status": "interview", "back": "applied"})
+    assert t.get("J0001")["status"] == "interview"
+    assert "interview" in c.get("/jobs?tab=applied").get_data(as_text=True)
+
+
+def test_job_page_at_a_glance_and_needs_summary(client):
+    c, t, _ = client
+    page = c.get("/job/J0001").get_data(as_text=True)
+    assert "At a glance" in page and "Experience asked" in page and "You have:" in page
+    assert "<details><summary><b>Full job description</b>" in page  # the long text is folded away
+    assert "Experience:" in c.get("/needs").get_data(as_text=True)
+
+
+def test_bookmark_prefills_add_job_without_saving(client):
+    c, t, started = client
+    before = len(t.rows())
+    page = c.get("/add?url=https://www.linkedin.com/jobs/view/42/&role=SOC+Analyst&company=Acme&text=Monitor+alerts"
+                 ).get_data(as_text=True)
+    assert 'value="https://www.linkedin.com/jobs/view/42/"' in page and 'value="SOC Analyst"' in page
+    assert "Monitor alerts</textarea>" in page and "Save to Career Agent" in page
+    assert len(t.rows()) == before and not started  # a GET only fills the form in
+
+
 def test_question_labels_are_readable():
     from ui.app import _question_label
     assert _question_label("current (ctc|salary|compensation)") == "Current ctc / salary / compensation"

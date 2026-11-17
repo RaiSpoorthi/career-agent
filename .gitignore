@@ -18,7 +18,10 @@ data/
 output/
 learning/
 inbox/*.eml
+inbox/*.json
+inbox/telegram/
 inbox/processed/*.eml
+inbox/processed/*.json
 
 # python
 __pycache__/

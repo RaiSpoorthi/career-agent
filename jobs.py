@@ -287,18 +287,19 @@ def cmd_ingest_inbox(args) -> int:
 
     profile, t = _profile(), tracker.Tracker()
     found, notes = sources.read_inbox(ROOT / "inbox")
-    if args.gmail:
-        from career.gmail import GmailError, fetch_alert_messages
+    from career.gmail import GmailError, fetch_alert_messages, fetch_alerts, imap_configured
+    if args.gmail or imap_configured():
         try:
-            for raw in fetch_alert_messages():
+            for raw in (fetch_alerts() if imap_configured() else fetch_alert_messages()):
                 found += sources.parse_alert_eml(raw)
         except GmailError as exc:
             notes.append(f"Gmail: {exc}")
     counts = pipeline.ingest(t, profile, found)
     for note in notes:
         say(f"  note: {note}")
-    say(f"Alerts: {len(found)} job link(s): {counts['needs_description']} added (paste their descriptions), "
-        f"{counts['duplicate']} already seen.")
+    say(f"Alerts and Telegram: {len(found)} job link(s): {counts['new']} new, {counts['needs_description']} need "
+        f"their description pasted, {counts['auto_skipped']} skipped by your rules, {counts['duplicate']} already "
+        "seen.")
     t.log(f"ingest-inbox: {counts}", level="run")
     return 0
 

@@ -20,15 +20,22 @@ A personal job-application system that anyone can clone and fill with their own 
 
 ## Job discovery and application rules (keep these)
 - Never log in to, scrape or automate LinkedIn, Naukri, Indeed or any site that needs an account
-  (`BLOCKED_HOSTS` in career/autoapply.py). Their alerts are read only from the user's own email. Never remove a
-  host from that list or add stealth/anti-detection code.
+  (`BLOCKED_HOSTS` in career/autoapply.py). Their jobs come in only from the user's own alert emails, Telegram
+  chat exports the user makes, or the "Save to Career Agent" bookmark, which only pre-fills Add job from a page
+  the user is viewing and clicks on. Never add code that fetches those sites. Never remove a host from that list
+  or add stealth/anti-detection code (if a site rejects the agent's browser, the user applies in their own).
 - Auto-apply is allowed only on public, no-account application forms (`SUPPORTED_HOSTS`). It answers only
   from career/answers.py (baseline.yaml + config/answers.yaml). Never let an LLM or a default value answer
-  a form question. A required question with no answer, a captcha, or an unconfirmed submission must end in
-  `awaiting-human`. Never add captcha solving.
+  a form question. One exception the user asked for: expected salary may use the market-pay estimate
+  (career/marketpay.py, setting `market_pay`), never below the floor in preferences, always with
+  "(open to discussion)" and shown on the job page. A required question with no answer, a captcha, or an
+  unconfirmed submission must end in `awaiting-human`. Never add captcha solving.
+- Raising ATS scores must stay honest: only skills/tools the profile backs (keywords.add_supported_skills,
+  the guard) and the automatic improve pass (setting `ats_target`). Never add a missing skill to reach a score.
 - Keep the daily submission cap and the "review" default for `apply_mode`.
 - Career pages: robots.txt must allow it, same-site links only, 2-second delay, max 25 listings per company.
-- Gemini runs only inside career/packet.py, capped per run by the `max_packets_per_run` setting.
+- Gemini runs only inside career/packet.py (tailoring, the ATS improve pass, market pay, revisions), capped per
+  run by the `max_packets_per_run` setting.
 
 ## Architecture
 - `career/profile.py`  loads the profile; `personal_file()` / `profile_path()` pick the user's file or the example.

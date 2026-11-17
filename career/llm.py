@@ -59,16 +59,43 @@ class GeminiLLM:
         self.last_model: str | None = None
 
     def generate_json(self, system: str, prompt: str) -> dict[str, Any]:
-        from google.genai import errors, types
+        from google.genai import types
 
         config = types.GenerateContentConfig(system_instruction=system, temperature=0.2,
                                              response_mime_type="application/json")
+        return self._generate(prompt, config, lambda response: parse_json(response.text))
+
+    def generate_json_searched(self, system: str, prompt: str) -> tuple[dict[str, Any], list[dict[str, str]]]:
+        """Like generate_json, but the model may run Google searches first (grounding).
+
+        Returns (answer, sources) where sources are the web pages it used: [{"title", "url"}].
+        """
+        from google.genai import types
+
+        config = types.GenerateContentConfig(system_instruction=system, temperature=0.2,
+                                             tools=[types.Tool(google_search=types.GoogleSearch())])
+
+        def read(response) -> tuple[dict[str, Any], list[dict[str, str]]]:
+            sources = []
+            for candidate in getattr(response, "candidates", None) or []:
+                meta = getattr(candidate, "grounding_metadata", None)
+                for chunk in getattr(meta, "grounding_chunks", None) or []:
+                    web = getattr(chunk, "web", None)
+                    if web and getattr(web, "uri", None):
+                        sources.append({"title": getattr(web, "title", "") or "", "url": web.uri})
+            return parse_json(response.text), sources[:6]
+        # Search quota is often not part of the free tier: fail fast so the caller can fall back.
+        return self._generate(prompt, config, read, patient=False)
+
+    def _generate(self, prompt: str, config, read, patient: bool = True):
+        from google.genai import errors
+
         problems: list[str] = []
         for model in self.models:
-            for attempt in range(3):
+            for attempt in range(3 if patient else 1):
                 try:
                     response = self._client.models.generate_content(model=model, contents=prompt, config=config)
-                    data = parse_json(response.text)
+                    data = read(response)
                     self.last_model = model
                     return data
                 except errors.ClientError as exc:
@@ -78,7 +105,7 @@ class GeminiLLM:
                                        "(create a new key at aistudio.google.com).") from exc
                     if code == 429:
                         problems.append(f"{model}: free-tier limit reached")
-                        if attempt == 0:
+                        if attempt == 0 and patient:
                             self._sleep(30)
                             continue
                         break
@@ -86,7 +113,8 @@ class GeminiLLM:
                     break  # 404 (model retired) / 400: try the next model
                 except errors.ServerError as exc:
                     problems.append(f"{model}: server error {getattr(exc, 'code', '')}")
-                    self._sleep(5 * (attempt + 1))
+                    if patient:
+                        self._sleep(5 * (attempt + 1))
                 except ValueError as exc:  # bad JSON
                     problems.append(f"{model}: unreadable output ({exc})")
                 except Exception as exc:  # network down, proxy, DNS, timeout
