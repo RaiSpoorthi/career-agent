@@ -1,0 +1,10 @@
+line-length = 120
+target-version = "py310"
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[lint.per-file-ignores]
+"ui/app.py" = ["E501"]
+"career/autoapply.py" = ["E501"]
+"tests/test_agent_and_autoapply.py" = ["E501"]

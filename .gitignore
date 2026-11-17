@@ -1,0 +1,35 @@
+# secrets
+.env
+client_secret.json
+gmail_token.json
+
+# your personal details: each has a committed *.example.yaml (python jobs.py init copies them)
+profile/baseline.yaml
+config/answers.yaml
+config/sources.yaml
+CLAUDE.local.md
+.claude/settings.local.json
+
+# a stray local copy of this project
+/career-agent/
+
+# personal job data and generated files
+data/
+output/
+learning/
+inbox/*.eml
+inbox/processed/*.eml
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

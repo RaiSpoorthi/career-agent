@@ -1,0 +1,62 @@
+# Where the agent looks for jobs. Everything here is optional; leave a list empty to skip it.
+# You can edit this file here or on the dashboard's Settings page.
+#
+# All of these are free, public job-board feeds. No login, no API key.
+#   greenhouse:      https://job-boards.greenhouse.io/<board>
+#   lever:           https://jobs.lever.co/<site>
+#   ashby:           https://jobs.ashbyhq.com/<board>
+#   recruitee:       https://<site>.recruitee.com
+#   smartrecruiters: https://jobs.smartrecruiters.com/<id>
+#   remotive:        remote jobs from remotive.com (true/false)
+#   careers_pages:   any public careers page; robots.txt is respected
+# Find the name in the company's careers-page address. A wrong name only produces a
+# "note:" line for that company; the others still run.
+
+# A listing is kept only if its title contains one of these...
+title_keywords: [security, identity, iam, cloud, soc, analyst, engineer, developer, software, devops, data,
+                 support, network, implementation, product]
+# ...and none of these whole words (roles above entry level, or outside your field).
+exclude_title_keywords: [senior, sr, staff, principal, lead, manager, director, head, vp, architect, distinguished,
+                         sales, account, marketing, recruiter, counsel, finance, designer, "ii", "iii", "iv"]
+# ...and its location mentions one of these (or gives no location). Remove this line to keep every location.
+locations: [india, bengaluru, bangalore, remote, anywhere, worldwide, apac]
+
+greenhouse:
+  # Checked by hand (Nov 2026): each board URL below was loaded and had live listings
+  # matching the keywords. If a company stops using Greenhouse, discover() will just
+  # get a 404 for that one board and skip it -- it won't break the others.
+  - {board: postman, company: Postman}                           # API security, IAM squad, Bengaluru/Hyderabad roles
+  - {board: zscaler, company: Zscaler}                           # cloud security / zero trust, heavy Bangalore hiring
+  - {board: cloudflare, company: Cloudflare}                      # IAM, product security, Bengaluru team
+  - {board: wizinc, company: Wiz}                                 # cloud security (CNAPP), mostly remote/Tel Aviv
+  - {board: innovaccer, company: Innovaccer}                      # healthtech SaaS, Noida, SDE roles
+  - {board: razorpaysoftwareprivatelimited, company: Razorpay}    # fintech, Bengaluru, note the long board slug
+
+lever:
+  - {site: cred, company: CRED}          # fintech, Bengaluru
+  - {site: zeta, company: Zeta}          # banking tech, has a Cloud & Product Security team, Bengaluru/Hyderabad
+
+ashby: []
+# Example:  - {board: examplecompany, company: Example Co}
+
+recruitee: []
+# Example:  - {site: examplecompany, company: Example Co}
+
+smartrecruiters: []
+# Example:  - {id: ExampleCompany, company: Example Co}
+
+# Remote-only listings from remotive.com. Most are for other countries, so your rules will
+# mark many REVIEW or SKIP. Their terms ask for at most a few requests a day: run the agent once or twice daily.
+remotive: false
+
+careers_pages: []
+# Example:
+# careers_pages:
+#   - {company: Example Co, url: https://example.com/careers, keywords: [engineer, security, identity]}
+#
+# Good next additions if you want more: find a company's own careers page and check
+# whether its job URLs contain "greenhouse.io" or "lever.co" -- if so it belongs above
+# instead, with the board/site name taken from that URL.
+
+# Email alerts: put .eml files (use Gmail's "Download message") in the inbox/ folder,
+# or enable the Gmail reader in README (gmail section).

@@ -1,0 +1,279 @@
+# =============================================================================
+# MASTER PROFILE: the ONLY source of facts for every resume this system makes.
+#
+# This is an EXAMPLE for a made-up person. `python jobs.py init` copies it to
+# profile/baseline.yaml (which git ignores, so your details stay on your computer).
+# Replace everything with your own facts, then delete the `sample: true` line.
+#
+# Rules:
+#  - Nothing outside this file can appear on a tailored resume. The guard in
+#    career/guard.py rejects any rewritten bullet that adds a number, tool or
+#    skill that is not already here.
+#  - To add something new (a project, a skill you have learned, a new metric),
+#    edit THIS file. Never edit generated resumes by hand to add claims.
+#  - Skill levels:
+#      work      = used in a job          -> can appear anywhere
+#      project   = used in a real project -> can appear anywhere
+#      academic  = coursework / labs only -> only in a "Familiar with" line
+# =============================================================================
+sample: true   # delete this line once the file describes you; the agent refuses to run until then
+
+contact:
+  name: Alex Morgan
+  email: alex.morgan@example.com
+  phone: "+91 90000 00000"
+  location: Bengaluru, India      # the last part is your home country unless preferences.home_country says otherwise
+  linkedin: https://linkedin.com/in/example-alex-morgan
+  github: https://github.com/example-alex-morgan
+
+tracks:
+  # Each track = one base resume. Name them anything (e.g. data, frontend, product).
+  # `categories`: skill categories from career/taxonomy.py (security, software, data, general) whose
+  #   keywords in a job description vote for this track; the track with the most votes is used.
+  # `bullets` picks which bullets appear (in order); `skills` lays out the Skills section.
+  # Every name used here must exist further down in this file.
+  security:
+    categories: [security]
+    headline: Cybersecurity | Identity & Access Management | Cloud Security
+    experience_order: [northwind, helix]
+    project_order: [iac, malware, scanner]
+    bullets:
+      northwind: [northwind.access, northwind.tickets, northwind.pim, northwind.segmentation, northwind.vuln,
+                  northwind.automation]
+      helix: [helix.features, helix.api]
+      iac: [iac.pipeline, iac.scenarios, iac.tests]
+      malware: [malware.platform, malware.yara]
+      scanner: [scan.tool]
+    skills:
+      security: [Identity & Access Management, Zero Trust, Azure AD, Active Directory, Privileged Identity Management,
+                 SSO/MFA, RBAC, Access reviews, Vulnerability Management, Threat Detection, Network micro-segmentation,
+                 Penetration Testing]
+      cloud: [Azure, AWS, Terraform, Infrastructure as Code, GitHub Actions, CI/CD, Policy as code, Git]
+      languages: [Python, PowerShell, JavaScript, TypeScript, SQL, Java]
+      tools: [Qualys VMDR, Guardicore, Saviynt, ServiceNow, Kali Linux, Wireshark, Nmap, Burp Suite, OPA/Rego,
+              Checkov, YARA, Sysmon, Volatility, Power BI, Power Automate]
+  software:
+    categories: [software, data]
+    headline: Software Engineer | Product & Implementation Engineering
+    experience_order: [helix, northwind]
+    project_order: [iac, scanner, malware]
+    bullets:
+      helix: [helix.features, helix.prs, helix.api, helix.config]
+      northwind: [northwind.automation, northwind.tickets, northwind.access, northwind.segmentation]
+      iac: [iac.pipeline, iac.tests, iac.scenarios]
+      scanner: [scan.tool]
+      malware: [malware.platform]
+    skills:
+      languages: [JavaScript, TypeScript, Python, SQL, Java, PowerShell]
+      web: [React, Node.js, REST APIs, Postman, API documentation, Flask]
+      devtools: [Git, GitHub Actions, CI/CD, Jira, pytest, Unit testing, Terraform, AWS, Azure, Power BI,
+                 Power Automate]
+      security: [Identity & Access Management, Zero Trust, SSO/MFA, RBAC, Vulnerability Management, Burp Suite,
+                 OWASP ZAP, Nmap, Kali Linux]
+
+experience:
+  - id: helix
+    title: Software Engineering Intern
+    org: Helix Health Labs
+    dates: Oct 2026 - Present
+    stack: [JavaScript, TypeScript, React, Node.js, Git, Jira, Postman, REST APIs,
+            API documentation, Code review, Debugging, Bug fixing, Client environment configuration]
+    bullets:
+      - id: helix.features
+        text: Resolve bugs and ship feature enhancements on a clinic scheduling platform using JavaScript, TypeScript, React and Node.js, working from Jira tickets.
+      - id: helix.prs
+        text: Submit changes through Git pull requests reviewed by senior engineers.
+      - id: helix.api
+        text: Maintain version-controlled Postman collections and API documentation.
+      - id: helix.config
+        text: Configure client environments in development, including provider credentials, and trace issues across the codebase.
+
+  - id: northwind
+    title: IT Intern, Identity and Access Management
+    org: Northwind Industries
+    dates: Jan 2026 - Jun 2026
+    stack: [IAM, Identity & Access Management, Zero Trust, Azure AD, Active Directory,
+            PIM, SSO, MFA, Saviynt, ServiceNow, Guardicore, Network micro-segmentation,
+            Qualys VMDR, Vulnerability Management, Power BI, Power Automate, PowerShell,
+            Python, Access reviews, Segregation of Duties, RBAC,
+            Identity lifecycle management, SLA management, Least privilege]
+    bullets:
+      - id: northwind.access
+        text: Administered identity and access management for 500+ users across 15+ enterprise applications, reducing access incidents by 25%.
+      - id: northwind.tickets
+        text: Resolved 70+ monthly Cloud IAM and identity lifecycle tickets (SSO, MFA, credentials) in ServiceNow, maintaining 98% SLA compliance.
+      - id: northwind.pim
+        text: Managed Privileged Identity Management (PIM) in Azure, user lifecycle operations, access reviews and Segregation of Duties (SoD) role governance using Saviynt.
+      - id: northwind.segmentation
+        text: Deployed Guardicore micro-segmentation across 300+ servers, moving policies from monitoring to enforcement.
+      - id: northwind.vuln
+        text: Ran daily Qualys VMDR vulnerability assessments and applied remediations under lead guidance.
+      - id: northwind.automation
+        text: Built Power BI SLA dashboards, automated SLA notifications with Power Automate, and scripted account recovery in PowerShell and Python.
+
+projects:
+  - id: iac
+    name: Terraform Drift Checker
+    url: https://github.com/example-alex-morgan/drift-checker
+    stack: [Terraform, Python, OPA/Rego, Checkov, GitHub Actions, AWS, pytest, CI/CD,
+            Infrastructure as Code, DevSecOps, Policy as code, Unit testing, IAM,
+            Least privilege, Automation]
+    bullets:
+      - id: iac.pipeline
+        text: Built a DevSecOps pipeline that detects, classifies and auto-remediates infrastructure drift across 10 AWS resources defined in Terraform.
+        variants:   # optional: different wording of the same facts for one track
+          software: Built a Python CLI and CI pipeline that detects, classifies by severity and auto-remediates infrastructure drift across 10 Terraform-managed AWS resources.
+      - id: iac.scenarios
+        text: Simulates 7 drift scenarios and rates each from Low to Critical; a 5-rule OPA/Rego policy gate and a Checkov scan (37 checks passing) run before deployment.
+      - id: iac.tests
+        text: Validated with 52 automated Python tests that run in GitHub Actions on every push; the pipeline publishes a drift report to each run.
+        variants:
+          software: Wrote 52 automated tests (pytest) and a GitHub Actions CI/CD workflow that lints, tests, scans and runs the full loop on every push.
+
+  - id: malware
+    name: ML Malware Detector
+    url: ""
+    stack: [Python, TensorFlow, Scikit-learn, Volatility, YARA, Sysmon, Machine learning,
+            Malware analysis, Memory forensics, Anomaly detection, Threat Detection]
+    bullets:
+      - id: malware.platform
+        text: Engineered a five-layer malware detection platform (ML classification, memory forensics, anomaly detection) achieving 94% accuracy.
+      - id: malware.yara
+        text: Integrated YARA rules with Sysmon telemetry for real-time threat detection.
+
+  - id: scanner
+    name: Website Vulnerability Scanner
+    url: ""
+    stack: [Python, Flask, OWASP ZAP, Nmap, Burp Suite, Web application security,
+            Penetration Testing, SQL injection, XSS, OWASP Top 10]
+    bullets:
+      - id: scan.tool
+        text: Developed an automated web scanner detecting SQLi, XSS and misconfigurations across 10+ categories, reducing testing time by 30%.
+        variants:
+          software: Built a Flask web application that automates vulnerability scanning for SQLi, XSS and misconfigurations across 10+ categories, reducing testing time by 30%.
+
+# Every skill you may claim, with its level and display group (a key of skill_group_titles).
+skills:
+  # --- work ---
+  - {name: Identity & Access Management, level: work, group: security}
+  - {name: Zero Trust, level: work, group: security}
+  - {name: Azure AD, level: work, group: security}
+  - {name: Active Directory, level: work, group: security}
+  - {name: Privileged Identity Management, level: work, group: security}
+  - {name: SSO/MFA, level: work, group: security}
+  - {name: RBAC, level: work, group: security}
+  - {name: Access reviews, level: work, group: security}
+  - {name: Vulnerability Management, level: work, group: security}
+  - {name: Network micro-segmentation, level: work, group: security}
+  - {name: Azure, level: work, group: cloud}
+  - {name: Python, level: work, group: languages}
+  - {name: PowerShell, level: work, group: languages}
+  - {name: JavaScript, level: work, group: languages}
+  - {name: TypeScript, level: work, group: languages}
+  - {name: React, level: work, group: web}
+  - {name: Node.js, level: work, group: web}
+  - {name: REST APIs, level: work, group: web}
+  - {name: Postman, level: work, group: web}
+  - {name: API documentation, level: work, group: web}
+  - {name: Git, level: work, group: devtools}
+  - {name: Jira, level: work, group: devtools}
+  - {name: Qualys VMDR, level: work, group: tools}
+  - {name: Guardicore, level: work, group: tools}
+  - {name: Saviynt, level: work, group: tools}
+  - {name: ServiceNow, level: work, group: tools}
+  - {name: Power BI, level: work, group: tools}
+  - {name: Power Automate, level: work, group: tools}
+  # --- project ---
+  - {name: Threat Detection, level: project, group: security}
+  - {name: Penetration Testing, level: project, group: security}
+  - {name: Policy as code, level: project, group: security}
+  - {name: AWS, level: project, group: cloud}
+  - {name: Terraform, level: project, group: cloud}
+  - {name: Infrastructure as Code, level: project, group: cloud}
+  - {name: GitHub Actions, level: project, group: cloud}
+  - {name: CI/CD, level: project, group: cloud}
+  - {name: SQL, level: project, group: languages}
+  - {name: Java, level: project, group: languages}
+  - {name: Flask, level: project, group: web}
+  - {name: pytest, level: project, group: devtools}
+  - {name: Unit testing, level: project, group: devtools}
+  - {name: OPA/Rego, level: project, group: tools}
+  - {name: Checkov, level: project, group: tools}
+  - {name: Kali Linux, level: project, group: tools}
+  - {name: Wireshark, level: project, group: tools}
+  - {name: Nmap, level: project, group: tools}
+  - {name: Burp Suite, level: project, group: tools}
+  - {name: OWASP ZAP, level: project, group: tools}
+  - {name: YARA, level: project, group: tools}
+  - {name: Sysmon, level: project, group: tools}
+  - {name: Volatility, level: project, group: tools}
+  - {name: TensorFlow, level: project, group: tools}
+  - {name: Scikit-learn, level: project, group: tools}
+  # --- academic (only in "Familiar with") ---
+  - {name: SIEM, level: academic, group: familiar}
+  - {name: Incident response, level: academic, group: familiar}
+  - {name: Linux, level: academic, group: familiar}
+  - {name: Bash, level: academic, group: familiar}
+  - {name: Docker, level: academic, group: familiar}
+  - {name: Kubernetes, level: academic, group: familiar}
+  - {name: Networking (TCP/IP), level: academic, group: familiar}
+
+skill_group_titles:
+  security: Security & IAM
+  cloud: Cloud & DevOps
+  languages: Languages
+  tools: Tools
+  web: Web & APIs
+  devtools: Developer Tools
+  familiar: Familiar with (academic)
+
+education:
+  - school: Example Institute of Technology, Bengaluru
+    degree: B.E. Computer Science & Engineering
+    dates: 2022 - 2026
+    score: GPA 8.9 / 10
+  - school: Example PU College, Bengaluru
+    degree: PUC (PCMB)
+    dates: 2020 - 2022
+    score: 90%
+    drop_for_international: true   # left off resumes for jobs abroad
+
+# Certifications and achievements: a plain string, or {name, tracks, priority}.
+#   tracks:   resumes this entry is most relevant to. No `tracks:` = shown on every resume.
+#   priority: when a resume overflows one page, a lower number is dropped first.
+# One-page fitting first drops certifications whose tracks don't include the resume's track,
+# then achievements by priority. Education and at least one certification always stay.
+certifications:
+  - name: Qualys Certified Specialist, VMDR
+    tracks: [security]
+  - name: AWS Certified Cloud Practitioner
+  - name: Kali Linux for Ethical Hackers
+    tracks: [security]
+achievements:
+  - name: College Hackathon, Track Winner
+    priority: 5
+  - name: Inter-college Chess Championship, Runner-up
+    priority: 1
+
+# Job-search rules used by the fit check and the application-form answers.
+preferences:
+  target_roles:
+    - IAM Analyst / Identity Engineer
+    - SOC Analyst
+    - Cloud Security Engineer
+    - Software Engineer (entry level)
+  max_years_required: 2          # jobs asking for more get flagged as a stretch
+  home_country: India            # jobs elsewhere count as "abroad"
+  # home_places: [berlin, munich, hamburg, germany]   # cities in your home country (built in for India)
+  ok_locations: [bengaluru, bangalore, remote]   # home-country places you are happy to work in
+  salary_min_lpa: 6              # India only: minimum pay in lakhs per annum. Remove if not in India.
+  expected_salary: 6 LPA or above (open to discussion)   # your answer for jobs in your home country
+  salary_min:                    # minimum annual pay by currency, for jobs that state it
+    USD: 75000
+    GBP: 40000
+    EUR: 55000
+  needs_visa_sponsorship_abroad: true
+  notice_period_days: 30
+  # CONFIRM this line is accurate before using the form answers.
+  work_authorization: Authorized to work in India; requires visa sponsorship for roles outside India.
+  graduation_year: 2026

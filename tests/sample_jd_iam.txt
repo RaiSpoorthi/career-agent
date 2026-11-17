@@ -1,0 +1,14 @@
+IAM Analyst (0-2 years) - Acme Security, Bengaluru (Hybrid)
+
+We are looking for an IAM Analyst to join our identity team. You will manage user provisioning and deprovisioning
+(joiner/mover/leaver), run quarterly access reviews and certifications, administer Azure AD / Microsoft Entra ID,
+support SSO and MFA rollouts, and handle IAM tickets in ServiceNow within SLA.
+
+Requirements:
+- 0-2 years of experience in Identity and Access Management
+- Hands-on with Azure AD, Active Directory, RBAC and privileged access (PIM / PAM)
+- Exposure to SailPoint or Saviynt
+- Scripting in PowerShell or Python for automation
+- Understanding of Zero Trust, least privilege and compliance (ISO 27001, SOX)
+- Nice to have: Okta, CyberArk, SIEM (Splunk)
+CTC: 6-9 LPA

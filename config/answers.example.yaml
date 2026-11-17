@@ -1,0 +1,20 @@
+# Answers to application-form questions that only you know.
+# The agent never invents an answer. If a form REQUIRES a question that is not answered by your
+# profile or by this file, it stops and puts the application under "Needs you".
+#
+# `question` is a phrase (or regular expression) to look for in the question text, in any letter case.
+# Entries with an empty answer are ignored. Fill in only what is true.
+
+portfolio: ""            # e.g. https://your-name.github.io  (used for "Website / Portfolio" fields)
+
+answers:
+  - question: "current (ctc|salary|compensation)"
+    answer: ""
+  - question: "years of (relevant |professional |total |work )?experience"
+    answer: ""
+  - question: "willing to relocate|open to relocat"
+    answer: ""
+  - question: "work from (the )?office|hybrid|on-?site"
+    answer: ""
+  - question: "gender"
+    answer: ""           # leave empty to skip optional diversity questions
