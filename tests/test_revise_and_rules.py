@@ -54,6 +54,19 @@ def test_open_remote_is_not_skipped(profile, location):
     assert fit.check(profile, "Engineer. 1 year of experience.", location).verdict != fit.SKIP
 
 
+# ---- form answers: portfolio --------------------------------------------------------------------------
+def test_portfolio_comes_from_profile_never_from_github(profile):
+    from career import answers as ans
+    job, report = {"source": "greenhouse"}, fit.check(profile, JD, "Bengaluru")
+    rule = ans.answer_for(ans.build(profile, job, report, extra={}), "Website / Portfolio")
+    assert rule.value == profile.contact["portfolio"] != profile.contact["github"]
+    override = ans.build(profile, job, report, extra={"portfolio": "https://other.example"})
+    assert ans.answer_for(override, "Portfolio").value == "https://other.example"
+    bare = copy.deepcopy(profile)
+    bare.data["contact"].pop("portfolio")
+    assert ans.answer_for(ans.build(bare, job, report, extra={}), "Portfolio URL") is None  # left for you
+
+
 # ---- pay ---------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("text,pay", [("CTC 8-10 LPA", "8-10 LPA"), ("Salary: 12 lakhs per year", "12 LPA"),
                                       ("$85,000 - $95,000 a year", "USD 85,000-95,000"), ("Great team.", "")])

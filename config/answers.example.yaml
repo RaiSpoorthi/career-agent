@@ -5,7 +5,7 @@
 # `question` is a phrase (or regular expression) to look for in the question text, in any letter case.
 # Entries with an empty answer are ignored. Fill in only what is true.
 
-portfolio: ""            # e.g. https://your-name.github.io  (used for "Website / Portfolio" fields)
+portfolio: ""            # only to use a different link than contact.portfolio in your profile on forms
 
 answers:
   - question: "current (ctc|salary|compensation)"

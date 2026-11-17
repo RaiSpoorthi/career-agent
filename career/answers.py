@@ -67,7 +67,8 @@ def build(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str
         ("phone", r"phone|mobile|contact number", c["phone"]),
         ("linkedin", r"linkedin", c["linkedin"]),
         ("github", r"github", c["github"]),
-        ("portfolio", r"portfolio|website|personal site|other (url|link)", str(extra.get("portfolio") or c["github"])),
+        ("portfolio", r"portfolio|website|personal site|other (url|link)",
+         str(extra.get("portfolio") or c.get("portfolio") or "")),
         ("notice", r"notice period|how soon can you (join|start)|earliest start", f"{p['notice_period_days']} days"),
         ("sponsorship", r"sponsor", "Yes" if fit.abroad else "No"),
         ("work_auth", r"authori[sz]ed to work|legally (able|allowed|permitted|entitled) to work|right to work|"
@@ -88,7 +89,9 @@ def build(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str
     if cover_note:
         rules.append(("cover", r"cover letter|why (are you|do you want|would you|this role|us)|"
                                r"additional information|anything else|tell us about yourself", cover_note))
-    return [Rule(key, re.compile(pattern, re.I), value) for key, pattern, value in rules]
+    # A rule with nothing to say (e.g. no portfolio) is left out, so that question stays unanswered
+    # instead of being filled with something else.
+    return [Rule(key, re.compile(pattern, re.I), value) for key, pattern, value in rules if str(value).strip()]
 
 
 def answer_for(rules: list[Rule], label: str) -> Rule | None:

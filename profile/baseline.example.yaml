@@ -25,6 +25,7 @@ contact:
   location: Bengaluru, India      # the last part is your home country unless preferences.home_country says otherwise
   linkedin: https://linkedin.com/in/example-alex-morgan
   github: https://github.com/example-alex-morgan
+  portfolio: https://example-alex-morgan.github.io   # optional: used for "Website / Portfolio" form fields
 
 tracks:
   # Each track = one base resume. Name them anything (e.g. data, frontend, product).

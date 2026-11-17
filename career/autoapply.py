@@ -135,7 +135,7 @@ def _launch(headless: bool):
                           "python -m playwright install chromium") from exc
     pw = sync_playwright().start()
     try:
-        browser = pw.chromium.launch(headless=headless)
+        browser = pw.chromium.launch(headless=headless, args=[] if headless else ["--start-maximized"])
     except Exception as exc:
         pw.stop()
         raise Unavailable(f"Could not start the browser ({str(exc).splitlines()[0][:120]}). Run:  "
@@ -284,7 +284,10 @@ def apply_to_job(tracker: Tracker, profile: Profile, job_id: str, *, mode: str =
     headless = (settings["headless"] == "on" and mode == "auto") or os.environ.get("CAREER_AGENT_HEADLESS") == "1"
     pw, browser = _launch(headless)
     try:
-        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        # A visible browser follows the real window size: a fixed page size can be taller than the screen
+        # (with Windows display scaling), hiding the bottom of the form or a captcha's Verify button.
+        page = browser.new_page(viewport={"width": 1280, "height": 900}) if headless else browser.new_page(
+            no_viewport=True)
         page.goto(url, wait_until="domcontentloaded", timeout=45000)
         try:
             page.wait_for_selector("form input, form textarea", timeout=15000)
