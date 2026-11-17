@@ -494,6 +494,24 @@ def test_needs_you_page_and_actions(client):
     assert started == [("takeover", "J0001"), ("run",)]
 
 
+def test_apply_result_is_shown_even_when_it_fails(client, monkeypatch):
+    import ui.app as ui_app
+    c, t, started = client
+
+    class Failed:  # e.g. Gemini was over its limit: the reason must reach you, not vanish
+        stdout = ["Gemini error: free-tier limit reached\n", "J0001: no-packet\n"]
+
+        def poll(self):
+            return 2
+    monkeypatch.setattr(ui_app, "spawn_cli", lambda root, *args: Failed())
+    c.post("/job/J0001/apply-now")
+    import time
+    time.sleep(0.2)  # the output reader runs in a thread
+    page = c.get("/job/J0001").get_data(as_text=True)
+    assert "Apply J0001" in page and "free-tier limit reached" in page
+    assert "free-tier limit reached" not in c.get("/job/J0001").get_data(as_text=True)  # shown once
+
+
 def test_open_takeover_browser_does_not_block_the_agent(client, monkeypatch):
     import ui.app as ui_app
     c, t, started = client

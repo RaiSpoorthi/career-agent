@@ -141,10 +141,13 @@ iframe.preview{width:100%;height:760px;border:1px solid var(--line);border-radiu
 <a href="{{ url_for('settings') }}" class="{{ 'on' if active=='settings' }}">Settings</a>
 <span style="margin-left:auto" class="note">apply mode: <b>{{ mode }}</b></span></header>
 <main>{% if task %}<div class="flash" id="task"><b>{{ task.name }}</b> is running…
-<span id="tasklog">{{ task.tail }}</span></div>
+<span id="tasklog">{{ task.tail }}</span></div>{% endif %}
+{% for b in browsers %}<div class="flash"><b>{{ b.name }}</b> {{ 'finished:' if b.done else 'is working… (this page refreshes when it is done)' }}
+<span style="white-space:pre-wrap">{{ b.tail or 'Starting…' }}</span></div>{% endfor %}
+{% if task or browsers|rejectattr('done')|list %}
 <script>const t=setInterval(async()=>{try{const r=await (await fetch('{{ url_for('task_status') }}')).json();
-document.getElementById('tasklog').textContent='\n'+r.tail;if(!r.running){clearInterval(t);location.reload()}}catch(e){}},2000)</script>{% endif %}
-{% if browsers %}<div class="note" style="margin-bottom:10px">Browser working: {{ browsers|join(', ') }}</div>{% endif %}
+const log=document.getElementById('tasklog');if(log)log.textContent='\n'+r.tail;
+if(!r.running){clearInterval(t);location.reload()}}catch(e){}},2000)</script>{% endif %}
 {% for n in notes %}<div class="alert"><span>{{ n.message }}</span>
 <form method="post" action="{{ url_for('dismiss', note_id=n.id) }}" class="inline"><button class="ghost">Dismiss</button></form></div>{% endfor %}
 {% for m in get_flashed_messages() %}<div class="flash">{{ m }}</div>{% endfor %}{% block body %}{% endblock %}</main>
@@ -474,8 +477,20 @@ def create_app(root: Path = ROOT) -> Flask:
         launch(browsers[job_id], name, *args)
         return True
 
-    def open_browsers() -> list[str]:
-        return [b["name"] for b in browsers.values() if b["proc"].poll() is None]
+    def open_browsers() -> list[dict]:
+        """Browser tasks still working, plus finished ones whose result you have not seen yet (shown once)."""
+        out = []
+        for b in browsers.values():
+            done = b["proc"].poll() is not None
+            if done and b.get("shown"):
+                continue
+            if done:
+                b["shown"] = True
+            out.append({"name": b["name"], "done": done, "tail": "\n".join(b["lines"][-8:])})
+        return out
+
+    def busy() -> bool:
+        return running() or any(b["proc"].poll() is None for b in browsers.values())
 
     @app.before_request
     def local_only():
@@ -497,7 +512,7 @@ def create_app(root: Path = ROOT) -> Flask:
 
     @app.get("/task")
     def task_status():
-        return jsonify(running=running(), name=task["name"], tail="\n".join(task["lines"][-6:]))
+        return jsonify(running=busy(), name=task["name"], tail="\n".join(task["lines"][-6:]))
 
     @app.post("/run")
     def run_agent():
