@@ -59,6 +59,64 @@ Each time you open a new terminal, activate the environment first (`.venv\Script
 
 ---
 
+## Daily routine (about 15 minutes)
+
+### Start the dashboard
+**Windows:** double-click **`start-dashboard.bat`** in the project folder. A black window opens (leave it open)
+and the dashboard opens in your browser at http://127.0.0.1:5055.
+
+Or from a terminal in the project folder:
+```bash
+.venv\Scripts\activate      # macOS/Linux: source .venv/bin/activate
+python jobs.py ui
+```
+
+**Stop it:** close that window, or press **Ctrl+C** in it.
+**Restart it** (after updating the code, or if a page looks out of date): stop it, then start it again.
+The dashboard only shows what's in `data/agent.db`, so stopping it never loses anything.
+
+### Each day
+1. **Find and tailor.** Press **Run agent now** on the dashboard (or let the daily scheduled run below do it).
+   It finds new jobs, skips the ones that break your rules, and tailors a resume for the rest.
+2. **Open Needs you.** Every job there has a tailored resume waiting. For each one:
+   - Read the **Check first** reason, if any (for example "asks for 3+ years").
+   - Open the job, check the **pay**, **fit** and **keyword match**, and read the tailored resume preview.
+   - Not happy with the resume? Type what to change in **Change this resume** and press the button. Repeat
+     until it reads right. Each change is checked for truthfulness and re-scored.
+   - Press **Take over**. A browser opens with the form filled in and your resume attached. Check every answer,
+     fill in anything left blank, and press **Submit**.
+   - Press **I submitted it** (or **Skip** if you decided not to apply).
+3. **Found a job yourself?** Use **Add job**: paste the link and description, and it is tailored and opened for you.
+
+### Each week
+- **Jobs:** update statuses (interview, offer, rejected) so the tracker stays useful.
+- **Learn next:** pick one skill to build something real with. When you have, add it to your profile
+  (`level: project`) so resumes can include it.
+- Changed your rules in `profile/baseline.yaml`? Run `python jobs.py rescore` to re-check saved jobs.
+
+### Run the agent automatically every morning (Windows)
+Run this once in PowerShell, from the project folder. It runs one pass daily at 9:00 (change the time if you
+like), or as soon as your computer is on if it was off at 9:00:
+```powershell
+$dir = (Get-Location).Path
+$action = New-ScheduledTaskAction -Execute "$dir\.venv\Scripts\python.exe" -Argument "jobs.py run" -WorkingDirectory $dir
+$trigger = New-ScheduledTaskTrigger -Daily -At 9:00AM
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable
+Register-ScheduledTask -TaskName "Career Agent" -Action $action -Trigger $trigger -Settings $settings
+```
+Check it with `Get-ScheduledTask -TaskName "Career Agent"`; remove it with
+`Unregister-ScheduledTask -TaskName "Career Agent" -Confirm:$false`. In `review` mode a scheduled run never submits
+anything: new resumes simply wait under **Needs you**. Each run tailors at most the number of resumes set on the
+Settings page (8 by default), so the free Gemini limit isn't used up.
+
+### Where your data is
+Everything the agent tracks is in one SQLite file, `data/agent.db` (tables: `jobs`, `events`, `notifications`,
+`settings`). The dashboard is its viewer. To browse it like a spreadsheet, open it in the free
+[DB Browser for SQLite](https://sqlitebrowser.org) (close it before a run; don't edit rows by hand while the agent
+is running). Tailored resumes and reports are in `output/`.
+
+---
+
 ## Writing your profile (`profile/baseline.yaml`)
 
 Every resume is built from this file and nothing else. The example shows every field; the main parts:
@@ -221,10 +279,7 @@ in the `inbox/` folder. Then click **Read alert emails** (or `python jobs.py ing
 Alert emails contain only the job title and link. Those jobs show under **Need the job description**: paste the
 description on the job page (or `python jobs.py attach J0005`) and it is scored.
 
-### Run the agent every morning (Windows Task Scheduler)
-Create a Basic Task, trigger **Daily**, action **Start a program**: program `<folder>\.venv\Scripts\python.exe`,
-arguments `jobs.py run`, start in `<folder>`. Each run tailors at most the number of resumes set on the Settings
-page (8 by default), so the free Gemini limit isn't used up.
+To run the whole agent every morning, see **Daily routine** above.
 
 ---
 
@@ -253,6 +308,7 @@ page (8 by default), so the free Gemini limit isn't used up.
 
 ```
 jobs.py                       command line (python jobs.py lists every command)
+start-dashboard.bat           double-click to start the dashboard (Windows)
 ui/app.py                     dashboard (python jobs.py ui)
 profile/baseline.example.yaml example profile (a made-up person); yours is profile/baseline.yaml
 config/*.example.yaml         example job sources and form answers; yours are config/sources.yaml, answers.yaml
