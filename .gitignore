@@ -36,3 +36,6 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# this computer's clone of the private cloud-state repo (python jobs.py cloud-setup)
+.state/

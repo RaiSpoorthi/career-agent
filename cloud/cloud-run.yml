@@ -1,0 +1,79 @@
+# Career Agent in the cloud: runs the agent twice a day on GitHub's free servers, so your computer can be off.
+# This file belongs in your PRIVATE state repo (python jobs.py cloud-setup copies it there), never in a public one:
+# that repo holds your profile and job data. See README, "Run it in the cloud".
+#
+# Secrets (state repo -> Settings -> Secrets and variables -> Actions): GEMINI_API_KEY, and for alert emails and
+# security codes GMAIL_ADDRESS and GMAIL_APP_PASSWORD. Variable APP_REPO = the public code repo (owner/name).
+name: Career Agent (cloud run)
+
+on:
+  schedule:
+    - cron: "30 1 * * *"    # 07:00 India time (01:30 UTC)
+    - cron: "30 12 * * *"   # 18:00 India time (12:30 UTC)
+  workflow_dispatch: {}     # "Run workflow" button on GitHub
+
+permissions:
+  contents: write           # to save the updated state back to this repo
+
+concurrency:
+  group: career-agent
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Get the state (this private repo)
+        uses: actions/checkout@v4
+        with:
+          path: state
+          fetch-depth: 0
+
+      - name: Get the code
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.APP_REPO || 'RaiSpoorthi/career-agent' }}
+          path: app
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/requirements.txt
+
+      - name: Install
+        working-directory: app
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run the agent
+        working-directory: app
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          CAREER_AGENT_HEADLESS: "1"
+          TZ: Asia/Kolkata
+        run: |
+          python jobs.py sync --state ../state --from-state --no-git
+          python jobs.py run || echo "The run reported a problem; the state is still saved."
+          python jobs.py sync --state ../state --from-state --no-git
+
+      - name: Save the state
+        working-directory: state
+        run: |
+          git config user.name "career-agent"
+          git config user.email "career-agent@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -q -m "Cloud run $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3; do
+            git push && exit 0
+            # Your computer synced meanwhile: take its state and merge again.
+            git fetch origin && git reset --hard "origin/$(git rev-parse --abbrev-ref HEAD)"
+            (cd ../app && python jobs.py sync --state ../state --from-state --no-git)
+            git add -A && git commit -q -m "Cloud run (merged)" || true
+          done
+          exit 1

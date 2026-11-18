@@ -77,6 +77,9 @@ LEARN = {
 }
 
 
+SETTINGS_STAMP = "_settings_updated"
+
+
 def _now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -197,9 +200,11 @@ class Tracker:
         return self.settings().get(key, "")
 
     def set_setting(self, key: str, value: str) -> None:
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # cloud sync: the newer set of settings wins
         with self._db() as db:
-            db.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
-                       "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, str(value)))
+            for k, v in ((key, str(value)), (SETTINGS_STAMP, stamp)):
+                db.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
+                           "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (k, v))
 
     # ---- lookups ---------------------------------------------------------------
     def get(self, job_id: str) -> dict[str, str]:

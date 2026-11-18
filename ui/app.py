@@ -13,6 +13,7 @@ import secrets
 import subprocess
 import sys
 import threading
+import time
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -83,6 +84,9 @@ def spawn_cli(root: Path, *args: str) -> subprocess.Popen:
     """Start a long jobs.py command (a full run, or a browser takeover) without blocking the page."""
     return subprocess.Popen([sys.executable, "-u", str(root / "jobs.py"), *args], cwd=root, text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace")
+
+
+SYNC_MINUTES = 15
 
 
 def run_cli(root: Path, *args: str, stdin: str | None = None, timeout: int = 600) -> tuple[int, str]:
@@ -457,6 +461,15 @@ def create_app(root: Path = ROOT) -> Flask:
         tracker.set_setting("ui_secret", secrets.token_hex(24))
     app.secret_key = tracker.setting("ui_secret")
     task: dict = {"name": "", "proc": None, "lines": []}
+    if (root / ".state" / ".git").exists():  # cloud runs are set up: share state now and every 15 minutes
+        def keep_synced() -> None:
+            while True:
+                code, out = run_cli(root, "sync", timeout=300)
+                last = out.splitlines()[-1] if out else "Sync: no output"
+                if code != 0 or "0 new job(s), 0 updated" not in last:  # only news goes in the log
+                    tracker.log(last, level="run" if code == 0 else "warn")
+                time.sleep(SYNC_MINUTES * 60)
+        threading.Thread(target=keep_synced, daemon=True).start()
 
     def profile() -> Profile:
         return Profile.load(profile_path(root))

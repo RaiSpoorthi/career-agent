@@ -52,6 +52,8 @@ A personal job-application system that anyone can clone and fill with their own 
 - `career/agent.py`  the loop: discover -> tailor -> apply -> hand off (`python jobs.py run`), and
   `apply_now` for a single job the user adds (`python jobs.py add --apply`, dashboard "Add job").
 - `ui/app.py`  Flask dashboard; long actions run as background `jobs.py` subprocesses.
+- `career/sync.py`, `cloud/cloud-run.yml`  optional cloud runs (GitHub Actions) with state in the user's
+  PRIVATE repo; row-level merge both ways. Never put personal files or state in the public repo.
 
 ## Working on the code
 - Run `python -m pytest -q` and `ruff check .` after any change. Tests use a fake Gemini (tests/fakes.py) and

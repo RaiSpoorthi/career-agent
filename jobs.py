@@ -339,6 +339,45 @@ def cmd_revise(args) -> int:
     return revise_packet(tracker.Tracker(), _profile(), args.job_id, instruction, say=say)
 
 
+def cmd_sync(args) -> int:
+    from career import sync
+
+    root = tracker.Tracker().root
+    state = Path(args.state) if args.state else root / sync.STATE_DIR
+    try:
+        if args.no_git:
+            counts = sync.sync_folders(root, state, personal_from_state=args.from_state)
+        else:
+            counts = sync.sync_with_remote(root, state, personal_from_state=args.from_state, say=say)
+    except sync.SyncError as exc:
+        say(f"Sync failed: {exc}")
+        return 2
+    say(f"Synced with the cloud: {counts['new']} new job(s), {counts['updated']} updated"
+        + (f", {counts['renumbered']} renumbered" if counts["renumbered"] else "") + ".")
+    return 0
+
+
+def cmd_cloud_setup(args) -> int:
+    import subprocess
+
+    from career import sync
+
+    root = tracker.Tracker().root
+    state = root / sync.STATE_DIR
+    if not (state / ".git").exists():
+        url = args.repo if args.repo.startswith("https://") else f"https://github.com/{args.repo}.git"
+        result = subprocess.run(["git", "clone", url, str(state)], capture_output=True, text=True)
+        if result.returncode != 0:
+            say(f"Could not clone {url}: {result.stderr.strip()[:300]}")
+            return 2
+    workflow = state / ".github" / "workflows" / "cloud-run.yml"
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(root / "cloud" / "cloud-run.yml", workflow)
+    (state / ".gitignore").write_text("*.db-wal\n*.db-shm\n*.tmp\n", encoding="utf-8")
+    say("State repo ready in .state/. Syncing your data and profile to it...")
+    return cmd_sync(argparse.Namespace(state=None, from_state=False, no_git=False))
+
+
 def cmd_fetch_descriptions(args) -> int:
     from career import jdfetch
 
@@ -405,6 +444,12 @@ def build_parser() -> argparse.ArgumentParser:
     rv = sub.add_parser("revise", help="tell the agent what to change in a tailored resume; it re-scores it")
     rv.add_argument("job_id")
     rv.add_argument("instruction", nargs="*", help='e.g. "put the cloud project first and lead with Azure AD"')
+    sy = sub.add_parser("sync", help="share jobs, resumes and your profile with the cloud run (private repo)")
+    sy.add_argument("--state", help="the state repo folder (default: .state)")
+    sy.add_argument("--from-state", action="store_true", help="take personal files from the state (the cloud run)")
+    sy.add_argument("--no-git", action="store_true", help="merge folders only; the caller commits and pushes")
+    cs = sub.add_parser("cloud-setup", help="connect this computer to your private state repo (once)")
+    cs.add_argument("repo", help="OWNER/NAME of the private repo, e.g. you/career-agent-state")
     sub.add_parser("fetch-descriptions", help="fetch full descriptions for jobs that came with only a title")
     sub.add_parser("rescore", help="re-check saved jobs against your current rules (after editing preferences)")
 
@@ -456,6 +501,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"init": cmd_init, "run": cmd_run, "apply-now": cmd_apply_now, "revise": cmd_revise,
             "rescore": cmd_rescore, "fetch-descriptions": cmd_fetch_descriptions,
+            "sync": cmd_sync, "cloud-setup": cmd_cloud_setup,
             "auto-apply": cmd_auto_apply, "takeover": cmd_auto_apply,
             "discover": cmd_discover, "ingest-inbox": cmd_ingest_inbox, "attach": cmd_attach,
             "applied": cmd_applied, "ui": cmd_ui, "add": cmd_add, "list": cmd_list, "show": cmd_show,

@@ -121,6 +121,29 @@ reads it, enters it and finishes the application. It reads only mail from applic
 Ashby, Recruitee) received in the last hour, read-only; nothing else in your inbox is looked at. Without Gmail the
 application goes to **Needs you** with the reason.
 
+### Run it in the cloud instead (computer can be off)
+GitHub runs the agent for free at 7:00 and 18:00 India time (`cloud/cloud-run.yml`; a run takes about 10-20
+minutes of the 2,000 free minutes a month that private repos get). Your jobs, resumes and profile live in a
+**private** repo of yours, never in the public code repo.
+
+1. On GitHub, create a **private** repo, e.g. `career-agent-state` (empty, no README).
+2. In it, **Settings -> Secrets and variables -> Actions**: add the secrets `GEMINI_API_KEY`, `GMAIL_ADDRESS` and
+   `GMAIL_APP_PASSWORD` (same values as your `.env`), and the variable `APP_REPO` = the public code repo
+   (e.g. `you/career-agent`). With the GitHub CLI: `gh secret set GEMINI_API_KEY -R you/career-agent-state`.
+3. On your computer: `python jobs.py cloud-setup you/career-agent-state`. It clones the repo into `.state/`,
+   adds the workflow and pushes your current jobs and profile. Then commit and push the workflow:
+   `git -C .state add -A; git -C .state commit -m "Cloud run"; git -C .state push`.
+4. Turn off the local schedule so the two never apply at the same time:
+   `Unregister-ScheduledTask -TaskName "Career Agent" -Confirm:$false`.
+5. Test it: GitHub -> the state repo -> **Actions -> Career Agent (cloud run) -> Run workflow**.
+
+How the two stay in step: the dashboard syncs when it starts and every 15 minutes (`python jobs.py sync` by hand).
+Syncing merges job by job (the newer change wins), so marking a job submitted on your computer and a cloud run
+finding new jobs never overwrite each other. Your profile and config go from your computer to the cloud only, so
+keep editing them here. Captchas, security codes without Gmail, and portals that need an account still come to
+**Needs you**: open the dashboard and finish them. The cloud browser runs from GitHub's servers, so some sites
+show captchas more often than on your own computer.
+
 ### Where your data is
 Everything the agent tracks is in one SQLite file, `data/agent.db` (tables: `jobs`, `events`, `notifications`,
 `settings`). The dashboard is its viewer. To browse it like a spreadsheet, open it in the free
