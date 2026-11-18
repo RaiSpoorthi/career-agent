@@ -14,7 +14,9 @@ from typing import Any, Protocol
 
 from career.profile import ROOT
 
-DEFAULT_MODELS = ["gemini-3.5-flash", "gemini-3.5-flash-lite"]
+# Tried in order; each has its own free daily limit, so a later one takes over when an earlier one runs out.
+# Gemma is free on the same key and follows the JSON format; the truthfulness guard checks every answer.
+DEFAULT_MODELS = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemma-4-26b-a4b-it"]
 
 
 class LLMError(RuntimeError):

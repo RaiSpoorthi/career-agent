@@ -25,7 +25,10 @@ with open(LOG, "a", encoding="utf-8", buffering=1) as log:
     try:
         import jobs
 
-        code = jobs.main(sys.argv[1:] or ["run"])  # a command can be given for testing, e.g. digest
+        # With cloud runs set up (.state/), the cloud applies; this computer only syncs, so the two never
+        # apply to the same job twice.
+        default = ["sync"] if (ROOT / ".state" / ".git").exists() else ["run"]
+        code = jobs.main(sys.argv[1:] or default)  # a command can be given for testing, e.g. digest
     except BaseException as exc:  # never fail silently: the reason is in the log
         print(f"Run failed: {type(exc).__name__}: {exc}")
         code = 1
