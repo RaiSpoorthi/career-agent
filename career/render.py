@@ -92,7 +92,7 @@ def _pdf_story(doc: dict[str, Any], size: float) -> list:
     contact_lines = [details + links] if not c.get("portfolio") else [details, links]
     story: list = [
         Paragraph(escape(c["name"].upper()), name),
-        Paragraph(f"<i>{escape(doc['headline'])}</i>", center),
+        *([Paragraph(f"<i>{escape(doc['headline'])}</i>", center)] if doc["headline"] else []),
         *[Paragraph(" &#183; ".join(line), contact_style) for line in contact_lines],
     ]
     width = A4[0] - 1.0 * inch
@@ -293,8 +293,9 @@ def _write_docx(doc: dict[str, Any], path: Path, size: float = MAX_SIZE) -> None
     p = para(WD_ALIGN_PARAGRAPH.CENTER)
     run = p.add_run(c["name"].upper())
     run.bold, run.font.size = True, Pt(20 * scale)
-    p = para(WD_ALIGN_PARAGRAPH.CENTER)
-    p.add_run(doc["headline"]).italic = True
+    if doc["headline"]:
+        p = para(WD_ALIGN_PARAGRAPH.CENTER)
+        p.add_run(doc["headline"]).italic = True
     p = para(WD_ALIGN_PARAGRAPH.CENTER)
     p.add_run(f"{c['location']}  ·  ")
     _hyperlink(p, f"mailto:{c['email']}", c["email"])

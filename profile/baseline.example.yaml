@@ -261,6 +261,9 @@ achievements:
 preferences:
   languages: asked              # optional: list only the programming languages a job asks for
   default_language: Python      # ...and only this one when the job names none
+  max_skills: 14                # a short Skills section: the job's asked-for skills first
+  max_per_group: 6
+  show_headline: false          # no title line under your name, only contact details
   target_roles:
     - IAM Analyst / Identity Engineer
     - SOC Analyst

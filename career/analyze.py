@@ -96,12 +96,15 @@ def _focus_rules(profile: Profile, track: str) -> str:
     rules = []
     hide = (profile.tracks.get(track) or {}).get("hide_categories") or []
     if hide:
-        rules.append(f"This is a {track} resume: do not mention {', '.join(hide)} skills or tools in the headline, "
-                     "summary or skills, and prefer bullets that are not mainly about that work.")
+        rules.append(f"This is a {track} resume: leave out {', '.join(hide)} skills, tools and bullets unless this "
+                     "job explicitly asks for them (then include the ones it asks for).")
     if profile.preferences.get("languages") == "asked":
         default = profile.preferences.get("default_language") or "one language"
         rules.append("List only the programming languages this job asks for; if it names none, list only "
                      f"{default}.")
+    if profile.preferences.get("max_skills"):
+        rules.append(f"Keep the Skills section short and focused: at most {profile.preferences['max_skills']} skills, "
+                     "the ones this job asks for first; no coursework-only skills unless the job asks for them.")
     return ("\n" + " ".join(rules)) if rules else ""
 
 

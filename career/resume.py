@@ -61,7 +61,8 @@ def layout(profile: Profile, content: dict[str, Any], international: bool = Fals
     return {
         "track": content["track"],
         "contact": profile.contact,
-        "headline": content["headline"],
+        # preferences.show_headline: false = no title line under your name, only contact details.
+        "headline": content["headline"] if profile.preferences.get("show_headline", True) else "",
         "experience": experience,
         "projects": projects,
         "skills": skills,

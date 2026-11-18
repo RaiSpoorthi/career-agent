@@ -88,7 +88,7 @@ def test_run_uses_repair_pass_and_keeps_clean_rewrites(profile):
     result = analyze.run(profile, llm, JD)
     assert len(llm.calls) == 2 and result.iterations == 2
     assert result.track == "security"
-    assert result.doc["headline"].startswith("IAM Analyst")
+    assert result.content["headline"].startswith("IAM Analyst")  # kept (show_headline only hides it on the page)
     assert result.rewrites_kept >= 3
     assert "Northwind" in result.model_output["cover_note"]
     assert "PREVIOUS ANSWER" in llm.calls[1]
