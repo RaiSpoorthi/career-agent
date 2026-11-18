@@ -59,10 +59,12 @@ def build_packet(tracker: trk.Tracker, profile: Profile, job_id: str, *, offline
     extra: dict[str, str] = {}
     cover, ats, market = "", "", None
     if offline:
+        from career.focus import focus_skills
         from career.keywords import add_supported_skills
 
         content = base_content(profile, track)
         add_supported_skills(profile, content, text)
+        focus_skills(profile, content, text, track)
         doc = layout(profile, content, international)
         (folder / "report.md").write_text(
             f"# {row['role']} @ {row['company']}\n\nOffline mode: base **{track}** resume, no AI analysis.\n"

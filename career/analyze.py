@@ -15,6 +15,7 @@ from typing import Any
 
 from career import guard, keywords
 from career.fit import FitReport
+from career.focus import focus_skills
 from career.llm import JSONModel
 from career.profile import Profile
 from career.resume import base_content, extra_items, layout, plain_text
@@ -90,12 +91,27 @@ def facts_for_model(profile: Profile, track: str) -> dict[str, Any]:
     }
 
 
+def _focus_rules(profile: Profile, track: str) -> str:
+    """The skill-focus rules (career/focus.py) in words, so the headline and summary follow them too."""
+    rules = []
+    hide = (profile.tracks.get(track) or {}).get("hide_categories") or []
+    if hide:
+        rules.append(f"This is a {track} resume: do not mention {', '.join(hide)} skills or tools in the headline, "
+                     "summary or skills, and prefer bullets that are not mainly about that work.")
+    if profile.preferences.get("languages") == "asked":
+        default = profile.preferences.get("default_language") or "one language"
+        rules.append("List only the programming languages this job asks for; if it names none, list only "
+                     f"{default}.")
+    return ("\n" + " ".join(rules)) if rules else ""
+
+
 def build_prompt(profile: Profile, track: str, job_text: str, kw: keywords.KeywordMatch) -> str:
     return (
         "CANDIDATE FACTS (the only truth):\n" + json.dumps(facts_for_model(profile, track), indent=1)
         + "\n\nRESUME TRACK: " + track
         + "\nUse the default resume for this track as the starting point. You may reorder, choose and rephrase "
           "bullets (keep 1 page: about 13-16 bullets in total) and reorder/choose skills, to fit THIS job."
+        + _focus_rules(profile, track)
         + "\n\nLOCAL KEYWORD SCAN (exact-match, may miss synonyms):\n"
         + json.dumps({"matched": kw.matched, "coursework_only": kw.partial, "missing": kw.missing})
         + "\n\nJOB DESCRIPTION:\n\"\"\"\n" + job_text.strip()[:15000] + "\n\"\"\"\n\n"
@@ -134,7 +150,9 @@ def run(profile: Profile, llm: JSONModel, job_text: str, track: str | None = Non
     prompt = build_prompt(profile, track, job_text, kw)
     output = llm.generate_json(SYSTEM, prompt)
     checked, output, iterations = _guarded(profile, llm, track, prompt, output)
-    output["skills_added"] = keywords.add_supported_skills(profile, checked.content, job_text)
+    added = keywords.add_supported_skills(profile, checked.content, job_text)
+    removed = focus_skills(profile, checked.content, job_text, track)
+    output["skills_added"] = [n for n in added if n not in removed]
     base_doc = layout(profile, base_content(profile, track), international)
     doc = layout(profile, checked.content, international)
     return Analysis(
@@ -190,6 +208,8 @@ def revise(profile: Profile, llm: JSONModel, job_text: str, previous: dict[str, 
     answer = llm.generate_json(SYSTEM, prompt)
     checked, answer, iterations = _guarded(profile, llm, track, prompt, answer)
     added = keywords.add_supported_skills(profile, checked.content, job_text)
+    removed = focus_skills(profile, checked.content, job_text, track)
+    added = [n for n in added if n not in removed]
 
     output = dict(previous.get("model_output") or {})
     output["skills_added"] = sorted({*(output.get("skills_added") or []), *added})

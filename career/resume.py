@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from career.focus import skill_categories
 from career.profile import CLAIMABLE, Profile
 
 
@@ -47,9 +48,12 @@ def layout(profile: Profile, content: dict[str, Any], international: bool = Fals
         experience.append({"title": src["title"], "org": src["org"], "dates": src["dates"],
                            "bullets": [b["text"] for b in item["bullets"]]})
     projects = []
+    # A track's hidden skill categories (career/focus.py) stay out of the project tool labels too.
+    hide = set((profile.tracks.get(content["track"]) or {}).get("hide_categories") or [])
     for item in content["projects"]:
         src = profile.entries[item["id"]]
-        stack = [s for s in src["stack"] if s in _short_stack(src)]
+        shown = [s for s in src["stack"] if not (hide and skill_categories(s) & hide)]
+        stack = [s for s in shown if s in _short_stack({"stack": shown})]
         projects.append({"name": src["name"], "url": src.get("url") or "", "stack": stack,
                          "bullets": [b["text"] for b in item["bullets"]]})
     skills = [(titles.get(group, group.title()), names) for group, names in content["skills"].items() if names]
@@ -62,8 +66,17 @@ def layout(profile: Profile, content: dict[str, Any], international: bool = Fals
         "projects": projects,
         "skills": skills,
         "education": education,
-        "certifications": extra_items(profile),
+        "certifications": _on_track(extra_items(profile), content["track"], hide),
     }
+
+
+def _on_track(items: list[dict[str, Any]], track: str, hide: set[str]) -> list[dict[str, Any]]:
+    """On a track that hides categories, certifications tagged only for other tracks are left out
+    (as long as one certification remains); otherwise one-page fitting decides."""
+    if not hide:
+        return items
+    kept = [i for i in items if not (i["kind"] == "certification" and i["tracks"] and track not in i["tracks"])]
+    return kept if any(i["kind"] == "certification" for i in kept) else items
 
 
 def extra_items(profile: Profile) -> list[dict[str, Any]]:

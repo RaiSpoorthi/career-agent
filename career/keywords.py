@@ -73,6 +73,13 @@ def match(profile: Profile, job_text: str) -> KeywordMatch:
     return result
 
 
+def _other_group(skills: dict[str, list[str]], default: str) -> str:
+    """Where a skill goes when the resume has no group of its own: the last group that is neither
+    "languages" (a tool is not a programming language) nor "familiar" (coursework only), or a new group."""
+    others = [g for g in skills if g not in ("languages", "familiar")]
+    return others[-1] if others else default
+
+
 def add_supported_skills(profile: Profile, content: dict, job_text: str) -> list[str]:
     """Put every skill the job asks for that you can prove into the resume's Skills section, in place.
 
@@ -91,13 +98,13 @@ def add_supported_skills(profile: Profile, content: dict, job_text: str) -> list
             continue
         skill = next((by_name[n] for n in names if n in by_name), None)
         if skill and skill["level"] in CLAIMABLE:
-            group = skill["group"] if skill["group"] in skills else next(iter(skills), skill["group"])
+            group = skill["group"] if skill["group"] in skills else _other_group(skills, skill["group"])
             name = skill["name"]
         elif skill and skill["level"] == "academic":
             group, name = "familiar", skill["name"]
         elif any(n in stack for n in names):
             name = stack[next(n for n in names if n in stack)]
-            group = next(iter(skills), "tools")
+            group = _other_group(skills, "tools")
         else:
             continue
         skills.setdefault(group, []).append(name)

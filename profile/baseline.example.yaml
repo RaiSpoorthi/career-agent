@@ -55,6 +55,7 @@ tracks:
               Checkov, YARA, Sysmon, Volatility, Power BI, Power Automate]
   software:
     categories: [software, data]
+    hide_categories: [security]   # optional: skill categories never shown on this track's resume
     headline: Software Engineer | Product & Implementation Engineering
     experience_order: [helix, northwind]
     project_order: [iac, scanner, malware]
@@ -258,6 +259,8 @@ achievements:
 
 # Job-search rules used by the fit check and the application-form answers.
 preferences:
+  languages: asked              # optional: list only the programming languages a job asks for
+  default_language: Python      # ...and only this one when the job names none
   target_roles:
     - IAM Analyst / Identity Engineer
     - SOC Analyst

@@ -86,7 +86,7 @@ def test_overflow_removes_items_one_at_a_time_in_order_before_shrinking(profile,
                 if c["kind"] == "certification" and (not c["tracks"] or track in c["tracks"])]
     assert set(on_track) <= set(kept)
     assert doc["certifications"] != fitted.doc["certifications"]  # input left unchanged
-    assert len(doc["certifications"]) == len(extra_items(profile)) + 30
+    assert len(doc["certifications"]) == len(layout(profile, base_content(profile, track))["certifications"]) + 30
 
     reader = PdfReader(tmp_path / "r.pdf")
     assert len(reader.pages) == 1
