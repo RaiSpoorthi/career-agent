@@ -72,7 +72,7 @@ jobs:
           for i in 1 2 3; do
             git push && exit 0
             # Your computer synced meanwhile: take its state and merge again.
-            git fetch origin && git reset --hard "origin/$(git rev-parse --abbrev-ref HEAD)"
+            git fetch origin && git reset --hard "origin/$(git symbolic-ref --short HEAD)"
             (cd ../app && python jobs.py sync --state ../state --from-state --no-git)
             git add -A && git commit -q -m "Cloud run (merged)" || true
           done

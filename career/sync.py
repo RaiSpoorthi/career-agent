@@ -171,16 +171,30 @@ def sync_with_remote(app: Path, state: Path, personal_from_state: bool = False, 
         raise SyncError(f"No state repo at {state}. Set it up first (README: 'Run it in the cloud').")
     for attempt in range(attempts):
         _git(state, "fetch", "origin")
-        branch = _git(state, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        branch = _git(state, "symbolic-ref", "--short", "HEAD").stdout.strip()  # works in an empty repo too
         if _git(state, "rev-parse", "--verify", f"origin/{branch}", check=False).returncode == 0:
             _git(state, "reset", "--hard", f"origin/{branch}")
         counts = sync_folders(app, state, personal_from_state)
         _git(state, "add", "-A")
-        if _git(state, "diff", "--cached", "--quiet", check=False).returncode == 0:
-            return counts  # nothing changed
-        _git(state, "-c", "user.name=career-agent", "-c", "user.email=career-agent@users.noreply.github.com",
-             "commit", "-q", "-m", "Sync agent state")
-        if not push or _git(state, "push", "origin", f"HEAD:{branch}", check=False).returncode == 0:
+        if _git(state, "diff", "--cached", "--quiet", check=False).returncode != 0:
+            _git(state, "-c", "user.name=career-agent", "-c", "user.email=career-agent@users.noreply.github.com",
+                 "commit", "-q", "-m", "Sync agent state")
+        if not push or not _ahead(state, branch):
             return counts
+        pushed = _git(state, "push", "origin", f"HEAD:{branch}", check=False)
+        if pushed.returncode == 0:
+            return counts
+        race = "fetch first" in pushed.stderr or "non-fast-forward" in pushed.stderr
+        if not race:  # e.g. missing permission: say what GitHub said instead of retrying
+            raise SyncError(f"GitHub refused the push: {pushed.stderr.strip()[-300:]}")
         say(f"  The other side pushed meanwhile; merging again ({attempt + 1}/{attempts})...")
     raise SyncError("Could not push the state after several tries. Run `python jobs.py sync` again.")
+
+
+def _ahead(state: Path, branch: str) -> bool:
+    """Does this clone have commits GitHub doesn't (or has nothing been pushed yet)?"""
+    if _git(state, "rev-parse", "--verify", "HEAD", check=False).returncode != 0:
+        return False  # nothing committed at all
+    if _git(state, "rev-parse", "--verify", f"origin/{branch}", check=False).returncode != 0:
+        return True
+    return bool(_git(state, "rev-list", f"origin/{branch}..HEAD").stdout.strip())

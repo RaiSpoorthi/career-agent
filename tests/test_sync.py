@@ -113,3 +113,17 @@ def test_round_trip_through_a_git_repo(tmp_path):
 
     sync.sync_with_remote(laptop.root, laptop.root / ".state", say=lambda *_: None)
     assert laptop.find_url("https://boards.greenhouse.io/acme/jobs/2")
+
+    # a commit that was never pushed (e.g. GitHub refused it) is pushed on the next sync
+    add(laptop, 3)
+    sync.sync_with_remote(laptop.root, laptop.root / ".state", push=False, say=lambda *_: None)
+    sync.sync_with_remote(laptop.root, laptop.root / ".state", say=lambda *_: None)
+    check = tmp_path / "check"
+    git("clone", "-q", str(remote), str(check))
+    sync.sync_folders(cloud.root, check, personal_from_state=True)
+    assert cloud.find_url("https://boards.greenhouse.io/acme/jobs/3")
+
+    # a refused push is reported, never shown as success
+    git("remote", "set-url", "origin", str(tmp_path / "missing.git"), cwd=laptop.root / ".state")
+    with pytest.raises(sync.SyncError):
+        sync.sync_with_remote(laptop.root, laptop.root / ".state", say=lambda *_: None)
