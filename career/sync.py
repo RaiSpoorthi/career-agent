@@ -93,11 +93,12 @@ def merge_db(local: Tracker, other_db: Path, other_root: Path) -> dict[str, int]
                 db.execute("UPDATE notifications SET done = 1 WHERE ts = ? AND job_id = ? AND message = ?", key)
 
         my_settings = {r["key"]: r["value"] for r in _rows(db, "SELECT key, value FROM settings")}
-        if their_settings.get(SETTINGS_STAMP, "") > my_settings.get(SETTINGS_STAMP, ""):
-            for key, value in their_settings.items():
-                if key != "ui_secret":  # each dashboard keeps its own
-                    db.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
-                               "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
+        newer = their_settings.get(SETTINGS_STAMP, "") > my_settings.get(SETTINGS_STAMP, "")
+        for key, value in their_settings.items():
+            # The newer set of settings wins; a setting this side never had is always taken.
+            if key != "ui_secret" and (newer or key not in my_settings):  # each dashboard keeps its own secret
+                db.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
+                           "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
     return counts
 
 

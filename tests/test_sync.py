@@ -67,6 +67,14 @@ def test_newer_settings_win_and_dismissed_notes_stay_dismissed(tmp_path):
     assert cloud.setting("apply_mode") == "review" and cloud.notifications() == []
 
 
+def test_settings_saved_before_timestamps_still_reach_a_fresh_cloud_copy(tmp_path):
+    laptop, cloud = Tracker(tmp_path / "laptop"), Tracker(tmp_path / "cloud")
+    with laptop._db() as db:  # an older copy: settings without the sync timestamp
+        db.execute("INSERT INTO settings (key, value) VALUES ('apply_mode', 'auto')")
+    sync.merge_db(cloud, laptop.db_path, laptop.root)
+    assert cloud.setting("apply_mode") == "auto"
+
+
 def test_personal_files_go_from_laptop_to_cloud_only(tmp_path):
     laptop, state, cloud = tmp_path / "laptop", tmp_path / "state", tmp_path / "cloud"
     Tracker(laptop)
