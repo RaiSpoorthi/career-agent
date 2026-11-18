@@ -6,14 +6,21 @@ Two ways (README, "Job alerts from your email"):
     emails from LinkedIn, Naukri and other job sites are found by sender; nothing is marked read or changed.
   * Google API: an OAuth "Desktop app" client saved as client_secret.json (gmail.readonly scope).
 
-Only alert emails you received are read, and only their job links are used.
+Only alert emails you received are read, and only their job links are used. When an application form
+emails a security code (Greenhouse does), the agent reads only mail from application systems
+(CODE_SENDERS) from the last hour to copy that code; nothing else in your mailbox is read.
 """
 
 from __future__ import annotations
 
 import base64
+import email
 import imaplib
 import os
+import re
+import time
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 from career.profile import ROOT
@@ -25,6 +32,10 @@ ALERT_SENDERS = ["jobalerts-noreply@linkedin.com", "jobs-noreply@linkedin.com", 
                  "naukri.com", "naukrialerts", "foundit.in", "instahyre.com", "wellfound.com", "cutshort.io",
                  "hirist", "iimjobs.com", "glassdoor"]
 IMAP_DAYS = 3
+# Application systems that email a security code to confirm a submission. Only their mail is read for codes.
+CODE_SENDERS = ["greenhouse-mail.io", "greenhouse.io", "lever.co", "hire.lever.co", "ashbyhq.com", "recruitee.com"]
+CODE_AFTER_LABEL = re.compile(r"code[^\n:]{0,80}:\s*([A-Za-z0-9]{6,10})\b", re.I)
+CODE_LINE = re.compile(r"^\s*([A-Za-z0-9]{6,10})\s*$", re.M)
 
 
 class GmailError(RuntimeError):
@@ -58,8 +69,8 @@ def imap_configured() -> bool:
 
 
 def fetch_via_imap(address: str, app_password: str, days: int = IMAP_DAYS, limit: int = 100,
-                   connect=imaplib.IMAP4_SSL) -> list[bytes]:
-    """Raw alert emails from the last `days` days, read-only (EXAMINE + BODY.PEEK: nothing marked read)."""
+                   connect=imaplib.IMAP4_SSL, query: str = "") -> list[bytes]:
+    """Raw alert emails (or those matching `query`), read-only (EXAMINE + BODY.PEEK: nothing marked read)."""
     try:
         conn = connect("imap.gmail.com")
         conn.login(address, app_password.replace(" ", ""))
@@ -72,7 +83,7 @@ def fetch_via_imap(address: str, app_password: str, days: int = IMAP_DAYS, limit
         status, _ = conn.select('"[Gmail]/All Mail"', readonly=True)
         if status != "OK":  # the folder has another name in some languages
             conn.select("INBOX", readonly=True)
-        query = f"from:({' OR '.join(ALERT_SENDERS)}) newer_than:{days}d"
+        query = query or f"from:({' OR '.join(ALERT_SENDERS)}) newer_than:{days}d"
         status, data = conn.search(None, "X-GM-RAW", f'"{query}"')
         ids = (data[0] or b"").split()[-limit:] if status == "OK" else []
         messages = []
@@ -113,3 +124,72 @@ def fetch_alert_messages(root: Path = ROOT, query: str = DEFAULT_QUERY, limit: i
         raw = service.users().messages().get(userId="me", id=item["id"], format="raw").execute()["raw"]
         messages.append(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
     return messages
+
+
+# ---- security codes -------------------------------------------------------------------------------
+def mail_configured(root: Path = ROOT) -> bool:
+    return imap_configured() or (root / "gmail_token.json").exists()
+
+
+def fetch_code_emails(root: Path = ROOT) -> list[bytes]:
+    """Mail from application systems (CODE_SENDERS) received in the last hour, read-only."""
+    query = f"from:({' OR '.join(CODE_SENDERS)}) newer_than:1h"
+    if imap_configured():
+        return fetch_via_imap(os.environ["GMAIL_ADDRESS"].strip(), os.environ["GMAIL_APP_PASSWORD"],
+                              query=query, limit=10)
+    if (root / "gmail_token.json").exists():
+        return fetch_alert_messages(root, query=query, limit=10)
+    return []
+
+
+def _body_text(msg) -> str:
+    from career.sources import html_to_text
+
+    plain, html = "", ""
+    for part in msg.walk() if msg.is_multipart() else [msg]:
+        payload = part.get_payload(decode=True)
+        if not payload:
+            continue
+        text = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+        if part.get_content_type() == "text/plain":
+            plain += text
+        elif part.get_content_type() == "text/html":
+            html += text
+    return plain or html_to_text(html)
+
+
+def extract_code(raw: bytes, since: datetime | None = None) -> str | None:
+    """The security code in one email from an application system, if it arrived after `since`."""
+    msg = email.message_from_bytes(raw)
+    sender = (msg.get("From") or "").lower()
+    if not any(s in sender for s in CODE_SENDERS):
+        return None
+    if since:
+        try:
+            if parsedate_to_datetime(msg.get("Date")) < since - timedelta(minutes=1):
+                return None
+        except (TypeError, ValueError):
+            return None
+    text = _body_text(msg)
+    if not re.search(r"(security|verification|confirmation) code", text, re.I):
+        return None
+    found = CODE_AFTER_LABEL.findall(text) or [c for c in CODE_LINE.findall(text) if re.search(r"\d", c)]
+    return found[0] if found else None
+
+
+def wait_for_code(since: datetime, root: Path = ROOT, timeout: int = 180, poll: int = 15,
+                  fetch=None, sleep=time.sleep) -> str | None:
+    """Poll for a security code emailed after `since` (an aware datetime). None if none arrives in time."""
+    fetch = fetch or (lambda: fetch_code_emails(root))
+    deadline = time.time() + timeout
+    while True:
+        codes = [c for c in (extract_code(raw, since) for raw in fetch()) if c]
+        if codes:
+            return codes[-1]
+        if time.time() >= deadline:
+            return None
+        sleep(poll)
+
+
+def now() -> datetime:
+    return datetime.now(timezone.utc)

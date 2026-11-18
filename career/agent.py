@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import time
 
-from career import autoapply, packet, pipeline, sources
+from career import autoapply, jdfetch, packet, pipeline, sources
 from career.profile import Profile, personal_file
 from career.tracker import SUBMITTED, Tracker
 
@@ -61,6 +61,10 @@ def run_once(tracker: Tracker, profile: Profile, say=print, *, discover=None, bu
     else:
         found, notes = discover()
     counts = pipeline.ingest(tracker, profile, found)
+    if discover is None and tracker.rows("needs-description"):
+        say("  Fetching full descriptions for links that came with only a title...")
+        got = jdfetch.fill_missing(tracker, profile, say=say)
+        say(f"  {got['found']} description(s) found; {got['not_found']} still need you to paste them")
     stats["found"] = counts["new"]
     rescored = pipeline.rescore(tracker, profile)  # your current rules also apply to jobs found earlier
     if rescored["now_skipped"]:

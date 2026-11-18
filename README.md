@@ -94,20 +94,32 @@ The dashboard only shows what's in `data/agent.db`, so stopping it never loses a
   (`level: project`) so resumes can include it.
 - Changed your rules in `profile/baseline.yaml`? Run `python jobs.py rescore` to re-check saved jobs.
 
-### Run the agent automatically every morning (Windows)
-Run this once in PowerShell, from the project folder. It runs one pass daily at 9:00 (change the time if you
-like), or as soon as your computer is on if it was off at 9:00:
+### Run the agent automatically, twice a day (Windows)
+Run this once in PowerShell, from the project folder. It runs at 7:00 and 18:00 (change the times if you like):
 ```powershell
 $dir = (Get-Location).Path
-$action = New-ScheduledTaskAction -Execute "$dir\.venv\Scripts\python.exe" -Argument "jobs.py run" -WorkingDirectory $dir
-$trigger = New-ScheduledTaskTrigger -Daily -At 9:00AM
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable
-Register-ScheduledTask -TaskName "Career Agent" -Action $action -Trigger $trigger -Settings $settings
+$action = New-ScheduledTaskAction -Execute "$dir\.venv\Scripts\pythonw.exe" -Argument "`"$dir\run_scheduled.pyw`"" -WorkingDirectory $dir
+$triggers = @((New-ScheduledTaskTrigger -Daily -At 7:00AM), (New-ScheduledTaskTrigger -Daily -At 6:00PM))
+$settings = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2) -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName "Career Agent" -Action $action -Trigger $triggers -Settings $settings
+powercfg /SETACVALUEINDEX SCHEME_CURRENT SUB_SLEEP RTCWAKE 1; powercfg /SETACTIVE SCHEME_CURRENT   # wake timers, plugged in only
 ```
-Check it with `Get-ScheduledTask -TaskName "Career Agent"`; remove it with
-`Unregister-ScheduledTask -TaskName "Career Agent" -Confirm:$false`. In `review` mode a scheduled run never submits
-anything: new resumes simply wait under **Needs you**. Each run tailors at most the number of resumes set on the
-Settings page (8 by default), so the free Gemini limit isn't used up.
+- **Laptop asleep and plugged in:** Windows wakes it, the run happens with no window (the browser stays hidden),
+  and it goes back to sleep on its usual timer. Use **Sleep**, not Shut down, at night.
+- **Laptop shut down (or asleep on battery):** a run that was missed starts as soon as you turn it on.
+- Each run: finds jobs (job boards, alert emails, Telegram exports in `inbox/`), fetches full descriptions,
+  tailors up to the Settings limit, then applies (in `auto` mode, up to the daily cap). The home page shows
+  **Since your last check**: what was submitted, and a button to the ones waiting for you.
+- Everything the run printed is in `data/scheduled.log`. Check the task with `Get-ScheduledTask -TaskName "Career
+  Agent"`; remove it with `Unregister-ScheduledTask -TaskName "Career Agent" -Confirm:$false`.
+
+In `review` mode a scheduled run never submits anything: new resumes simply wait under **Needs you**. Each run
+tailors at most the number of resumes set on the Settings page (8 by default), so the free Gemini limit isn't used up.
+
+**Security codes.** Some forms (Greenhouse) email you a code after Submit. With Gmail connected (below), the agent
+reads it, enters it and finishes the application. It reads only mail from application systems (Greenhouse, Lever,
+Ashby, Recruitee) received in the last hour, read-only; nothing else in your inbox is looked at. Without Gmail the
+application goes to **Needs you** with the reason.
 
 ### Where your data is
 Everything the agent tracks is in one SQLite file, `data/agent.db` (tables: `jobs`, `events`, `notifications`,
@@ -311,8 +323,19 @@ and use the **Save to Career Agent** bookmark (below), or paste the description 
 2. Click **Read alert emails** on the dashboard (or `python jobs.py ingest-inbox`, or wait for the next run).
 
 Every job link posted in the last 14 days becomes a job (links to Telegram, WhatsApp and social sites are ignored).
-A post with the full description is scored straight away; a short post waits under **Need the job description**.
 Re-exporting the same group later is fine: jobs already seen are skipped. No Telegram login, bot or automation is used.
+
+**Safety first.** Links posted by strangers are screened before anything opens them (`career/linksafety.py`).
+Saved as skipped with the reason, and never opened by the agent: links that are not https, bare IP addresses,
+look-alike domains (a fake "greenhouse" site), punycode, file downloads (.apk, .exe, .zip...), risky domain endings,
+Google Forms and similar data-collection forms, posts that ask for a fee or deposit, and short links whose
+destination can't be seen. Short links are followed with plain requests that only read where they lead.
+
+**Descriptions.** Most posts are one line and a link, so the agent fetches the full description itself
+(`python jobs.py fetch-descriptions`, also part of every run): from the public job data of Workday, Oracle,
+Greenhouse, Lever and Ashby, or from the page's text when its robots.txt allows. LinkedIn and Naukri links are
+never fetched; use the bookmark below for those. Jobs on company portals that need an account (Workday, Oracle...)
+get a tailored resume and wait under **Needs you** with **Apply in my browser**; only public forms are submitted.
 
 ### Save to Career Agent: any job page, one click (LinkedIn included)
 On the dashboard's **Add job** page, drag the **Save to Career Agent** button to your browser's bookmarks bar. When

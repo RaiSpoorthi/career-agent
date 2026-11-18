@@ -339,6 +339,15 @@ def cmd_revise(args) -> int:
     return revise_packet(tracker.Tracker(), _profile(), args.job_id, instruction, say=say)
 
 
+def cmd_fetch_descriptions(args) -> int:
+    from career import jdfetch
+
+    counts = jdfetch.fill_missing(tracker.Tracker(), _profile(), say=say)
+    say(f"{counts['found']} description(s) found; {counts['not_found']} still need you to paste them "
+        "(LinkedIn/Naukri links and pages the agent may not read).")
+    return 0
+
+
 def cmd_rescore(args) -> int:
     from career import pipeline
 
@@ -396,6 +405,7 @@ def build_parser() -> argparse.ArgumentParser:
     rv = sub.add_parser("revise", help="tell the agent what to change in a tailored resume; it re-scores it")
     rv.add_argument("job_id")
     rv.add_argument("instruction", nargs="*", help='e.g. "put the cloud project first and lead with Azure AD"')
+    sub.add_parser("fetch-descriptions", help="fetch full descriptions for jobs that came with only a title")
     sub.add_parser("rescore", help="re-check saved jobs against your current rules (after editing preferences)")
 
     lst = sub.add_parser("list", help="show the tracker")
@@ -445,7 +455,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 COMMANDS = {"init": cmd_init, "run": cmd_run, "apply-now": cmd_apply_now, "revise": cmd_revise,
-            "rescore": cmd_rescore,
+            "rescore": cmd_rescore, "fetch-descriptions": cmd_fetch_descriptions,
             "auto-apply": cmd_auto_apply, "takeover": cmd_auto_apply,
             "discover": cmd_discover, "ingest-inbox": cmd_ingest_inbox, "attach": cmd_attach,
             "applied": cmd_applied, "ui": cmd_ui, "add": cmd_add, "list": cmd_list, "show": cmd_show,

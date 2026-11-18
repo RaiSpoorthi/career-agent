@@ -10,6 +10,8 @@ from pathlib import Path
 # Hide the personal files in this checkout (see career/profile.py). Set before any test imports
 # career.*, and inherited by the subprocesses the dashboard tests start.
 os.environ["CAREER_AGENT_EXAMPLES"] = str(Path(__file__).resolve().parent.parent)
+# Never read a real mailbox in tests: set (empty) before anything loads .env, which never overrides them.
+os.environ["GMAIL_ADDRESS"] = os.environ["GMAIL_APP_PASSWORD"] = ""
 
 PERSONAL = ("baseline.yaml", "answers.yaml", "sources.yaml", ".env", "data", "output", "learning", "career-agent")
 JUNK = ("__pycache__", ".venv", ".git", ".pytest_cache", ".ruff_cache")

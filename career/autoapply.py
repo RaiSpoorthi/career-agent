@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 
 from career import answers as ans
 from career import fit as fitmod
+from career import gmail, linksafety
 from career import packet as pkt
 from career.profile import Profile
 from career.tracker import Tracker
@@ -281,6 +282,41 @@ def _fill_combo(page, target, rule: ans.Rule) -> bool:
     return False
 
 
+CODE_FIELD = ('input[id*="security" i], input[name*="security" i], input[autocomplete="one-time-code"], '
+              'input[aria-label*="security code" i], input[aria-label*="verification code" i], '
+              'input[id*="verification" i], input[name*="verification_code" i]')
+
+
+def _code_boxes(page) -> list:
+    """Visible security-code inputs (one box, or one box per character)."""
+    try:
+        boxes = page.locator(CODE_FIELD)
+        return [boxes.nth(i) for i in range(boxes.count()) if boxes.nth(i).is_visible()]
+    except Exception:
+        return []
+
+
+def _type_code(boxes: list, code: str) -> None:
+    if len(boxes) > 1:  # one box per character
+        for box, char in zip(boxes, code, strict=False):
+            box.fill(char)
+    else:
+        boxes[0].fill(code)
+
+
+def _email_code(email_code, since, root: Path, say, job_id: str) -> str | None:
+    if email_code is None:
+        if not gmail.mail_configured(root):
+            return None
+        email_code = lambda since: gmail.wait_for_code(since, root)  # noqa: E731
+    say(f"  {job_id}: waiting for the security code email...")
+    try:
+        return email_code(since)
+    except Exception as exc:
+        say(f"  {job_id}: could not read the code from your email ({type(exc).__name__})")
+        return None
+
+
 def _submit(page) -> bool:
     buttons = page.locator('button[type="submit"], input[type="submit"], button')
     for i in range(buttons.count()):
@@ -296,7 +332,8 @@ def _submit(page) -> bool:
 
 
 def apply_to_job(tracker: Tracker, profile: Profile, job_id: str, *, mode: str = "auto",
-                 supported: tuple[str, ...] = SUPPORTED_HOSTS, say=print, wait=time.sleep) -> ApplyResult:
+                 supported: tuple[str, ...] = SUPPORTED_HOSTS, say=print, wait=time.sleep,
+                 email_code=None) -> ApplyResult:
     """mode="auto": submit if everything required is answered, else hand off.
     mode="takeover": open a visible browser, fill the form, and leave Submit to you."""
     row = tracker.get(job_id)
@@ -318,6 +355,10 @@ def apply_to_job(tracker: Tracker, profile: Profile, job_id: str, *, mode: str =
     if kind == "blocked":
         return hand_off("This site needs your account, so it is never automated. Open the listing and apply "
                         "with the packet.", "manual-only")
+    safety = linksafety.check(url)
+    if safety.level != linksafety.OK:
+        return hand_off(f"Link not opened for safety: {safety.reason}. Open it yourself only if you trust it.",
+                        "manual-only")
     if kind == "unsupported" and mode == "auto":
         return hand_off("This application portal is not one the agent fills automatically. Press Take over.",
                         "manual-only")
@@ -383,10 +424,26 @@ def apply_to_job(tracker: Tracker, profile: Profile, job_id: str, *, mode: str =
                          filled, unresolved)
         if _captcha_visible(page):
             return _with(hand_off("The form shows a captcha." + CAPTCHA_TIP), filled, unresolved)
+        submitted_at = gmail.now()
         if not _submit(page):
             return _with(hand_off("Could not find the Submit button."), filled, unresolved)
+        code_tried = False
         for _ in range(15):
             wait(2)
+            boxes = _code_boxes(page)
+            if boxes and not code_tried and not _confirmed(page):
+                # The form emailed you a security code (Greenhouse does this). Read it from mail sent by the
+                # application system itself, enter it and submit again.
+                code_tried = True
+                code = _email_code(email_code, submitted_at, tracker.root, say, row["id"])
+                if not code:
+                    return _with(hand_off("The form emailed you a security code. Enter it from your inbox and "
+                                          "press Submit (Take over)." + ("" if gmail.mail_configured(tracker.root)
+                                          else " Connect Gmail (README) and the agent will do this for you.")),
+                                 filled, unresolved)
+                _type_code(boxes, code)
+                _submit(page)
+                continue
             if _confirmed(page):
                 try:
                     page.screenshot(path=str(folder / "submitted.png"), full_page=True)

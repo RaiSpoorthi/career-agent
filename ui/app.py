@@ -14,7 +14,7 @@ import subprocess
 import sys
 import threading
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
@@ -67,6 +67,16 @@ JOB_TABS = {  # Jobs page tabs: label, statuses
 def _question_label(pattern: str) -> str:
     """'current (ctc|salary)' -> 'current ctc / salary': a readable label for a question in config/answers.yaml."""
     return re.sub(r"\s+", " ", re.sub(r"[()?^$\\]", " ", pattern.replace("|", " / "))).strip().capitalize()
+
+
+def _last_scheduled_run(root: Path) -> str:
+    """'Last automatic run: <when>' from data/scheduled.log (written by run_scheduled.pyw), or ''."""
+    try:
+        text = (root / "data" / "scheduled.log").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    starts = re.findall(r"===== (\d{4}-\d\d-\d\d \d\d:\d\d) scheduled run", text)
+    return f"Last automatic run: {starts[-1]}" if starts else ""
 
 
 def spawn_cli(root: Path, *args: str) -> subprocess.Popen:
@@ -162,6 +172,15 @@ if(!r.running){clearInterval(t);location.reload()}}catch(e){}},2000)</script>{% 
   <form method="post" action="{{ url_for('discover') }}" class="inline"><button class="ghost">Search career pages</button></form>
   <form method="post" action="{{ url_for('ingest') }}" class="inline"><button class="ghost">Read alert emails</button></form>
  </div></div>
+<div class="card"><div class="row" style="justify-content:space-between">
+ <h2>Since your last check</h2><span class="note">{{ last_auto or 'No automatic run yet' }}</span></div>
+{% if recent %}<table>{% for r in recent %}<tr><td><a href="{{ url_for('job', job_id=r.id) }}">{{ r.role }}</a>
+<div class="note">{{ r.company }} · {{ r.location }}</div></td>
+<td>{{ 'submitted by the agent' if r.status == 'applied-auto' else 'submitted by you' }}</td>
+<td class="note">{{ r.date_applied or r.updated[:10] }}</td></tr>{% endfor %}</table>
+{% else %}<div class="muted">No applications submitted in the last day and a half.</div>{% endif %}
+{% if counts['awaiting-human'] %}<div style="margin-top:12px"><a class="btn" href="{{ url_for('needs') }}">Finish {{ counts['awaiting-human'] }} waiting for you →</a></div>{% endif %}
+</div>
 <div class="grid g4">
  <div class="card stat"><span>Needs you</span><b><a href="{{ url_for('needs') }}">{{ counts['awaiting-human'] }}</a></b></div>
  <div class="card stat"><span>New matches</span><b>{{ counts['discovered'] }}</b></div>
@@ -534,8 +553,11 @@ def create_app(root: Path = ROOT) -> Flask:
         ready = [r for r in all_rows if r["status"] == "packet-ready"]
         needs = [r for r in all_rows if r["status"] == "needs-description"]
         log = [f"{e['ts'][:16]}  {e['job_id'] + ' ' if e['job_id'] else ''}{e['message']}" for e in tracker.events(15)]
+        since = (datetime.now() - timedelta(hours=36)).strftime("%Y-%m-%d %H:%M")
+        recent = sorted((r for r in all_rows if r["status"] in ("applied-auto", "completed-manual")
+                         and (r["updated"] or "") >= since), key=lambda r: r["updated"], reverse=True)
         return render_template("dashboard.html", active="home", counts=counts, best=fresh[:10], ready=ready,
-                               needs=needs, log="\n".join(log) or "No activity yet.",
+                               recent=recent, last_auto=_last_scheduled_run(root), needs=needs, log="\n".join(log) or "No activity yet.",
                                today=datetime.now().strftime("%A, %d %B %Y"))
 
     @app.get("/needs")

@@ -70,6 +70,8 @@ def focus_skills(profile: Profile, content: dict[str, Any], job_text: str, track
     _cap(skills, asked, int(prefs.get("max_skills") or 0), int(prefs.get("max_per_group") or 0))
     for group in [g for g, names in skills.items() if not names]:
         del skills[group]
+    if FAMILIAR_GROUP in skills:  # coursework-only skills always come last
+        skills[FAMILIAR_GROUP] = skills.pop(FAMILIAR_GROUP)
     after = {n for names in skills.values() for n in names}
     return [n for n in before if n not in after]
 

@@ -33,6 +33,11 @@ A personal job-application system that anyone can clone and fill with their own 
 - Raising ATS scores must stay honest: only skills/tools the profile backs (keywords.add_supported_skills,
   the guard) and the automatic improve pass (setting `ats_target`). Never add a missing skill to reach a score.
 - Keep the daily submission cap and the "review" default for `apply_mode`.
+- Links from strangers (Telegram exports) go through `career/linksafety.py` before anything opens them; unsafe ones
+  are saved as skipped and never opened. Never weaken that screen. `career/jdfetch.py` reads only public job data
+  (job-board JSON, or page text when robots.txt allows) and never fetches account sites or unsafe links.
+- Email security codes (career/gmail.py `wait_for_code`) may be read only from `CODE_SENDERS` (application systems),
+  read-only, from the last hour, right after the agent submitted. Never read other mail for this.
 - Career pages: robots.txt must allow it, same-site links only, 2-second delay, max 25 listings per company.
 - Gemini runs only inside career/packet.py (tailoring, the ATS improve pass, market pay, revisions), capped per
   run by the `max_packets_per_run` setting.

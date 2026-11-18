@@ -131,7 +131,7 @@ def test_ingest_scores_dedupes_and_applies_rules(tmp_path, profile):
     t = Tracker(tmp_path)
     jobs = sources.parse_greenhouse(GREENHOUSE, "Acme") + sources.parse_alert_eml(LINKEDIN_ALERT)
     counts = pipeline.ingest(t, profile, jobs)
-    assert counts == {"new": 1, "duplicate": 0, "needs_description": 3, "auto_skipped": 1}
+    assert counts == {"new": 1, "duplicate": 0, "needs_description": 3, "auto_skipped": 1, "unsafe": 0}
     by_role = {r["role"]: r for r in t.rows()}
     assert by_role["IAM Analyst"]["status"] in ("discovered", "needs-description")
     assert by_role["Senior Security Architect"]["status"] == "skipped"

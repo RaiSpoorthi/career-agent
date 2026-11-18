@@ -311,6 +311,16 @@ PAGES = {
     "/captcha": FORM.replace("EXTRA", '<iframe src="/recaptcha/api2/bframe" width="300" height="400"></iframe>'),
     "/consent": FORM.replace("EXTRA", '<label><input type="checkbox" name="ok" required> I agree to the privacy '
                                       'policy *</label>'),
+    # Like Greenhouse's email check: the first Submit reveals a security-code box; only the right code submits.
+    "/code": FORM.replace("EXTRA", """
+<div id="codebox" style="display:none"><label for="security_code">Security code</label>
+<input id="security_code" name="security_code"></div>
+<script>
+document.getElementById('f').addEventListener('submit', e => {
+  if (document.getElementById('security_code').value !== 'AB12CD34') {
+    e.preventDefault(); e.stopImmediatePropagation(); document.getElementById('codebox').style.display = 'block'; }
+}, true);
+</script>"""),
     "/split": FORM.replace("EXTRA", """
 <label for="cc">Phone country code *</label><select id="cc" name="cc" required><option value="">Select...</option>
 <option>United States (+1)</option><option>India (+91)</option></select>
@@ -426,6 +436,23 @@ def test_dropdowns_and_source_question_are_answered_without_guessing(browser_job
     assert result.unresolved == ["What is the source of your right to work where this role is listed? *"]
 
 
+def test_emailed_security_code_is_entered_and_the_form_submitted(browser_job, profile):
+    t, make, go, received = browser_job
+    asked = []
+    result = autoapply.apply_to_job(t, profile, make("/code"), supported=("127.0.0.1",), say=lambda *_: None,
+                                    email_code=lambda since: asked.append(since) or "AB12CD34")
+    assert result.outcome == "submitted" and len(asked) == 1
+    assert received[0]["security_code"] == "AB12CD34"
+
+
+def test_no_code_in_the_inbox_hands_the_application_to_you(browser_job, profile):
+    t, make, go, received = browser_job
+    job_id = make("/code")
+    result = autoapply.apply_to_job(t, profile, job_id, supported=("127.0.0.1",), say=lambda *_: None,
+                                    email_code=lambda since: None)
+    assert result.outcome == "handoff" and received == [] and "security code" in t.get(job_id)["handoff_reason"]
+
+
 def test_country_code_city_and_country_boxes_are_filled_from_the_profile(browser_job, profile):
     t, make, go, received = browser_job
     assert go(make("/split")).outcome == "submitted"
@@ -492,6 +519,16 @@ def test_needs_you_page_and_actions(client):
     c.post("/job/J0001/takeover")
     c.post("/run")
     assert started == [("takeover", "J0001"), ("run",)]
+
+
+def test_home_lists_what_was_submitted_while_you_were_away(client):
+    c, t, started = client
+    t.update("J0001", status="applied-auto")
+    (t.root / "data").mkdir(exist_ok=True)
+    (t.root / "data" / "scheduled.log").write_text("\n===== 2026-11-19 07:00 scheduled run =====\n", encoding="utf-8")
+    page = c.get("/").get_data(as_text=True)
+    assert "Since your last check" in page and "submitted by the agent" in page
+    assert "Last automatic run: 2026-11-19 07:00" in page and "Finish 1 waiting for you" in page
 
 
 def test_apply_result_is_shown_even_when_it_fails(client, monkeypatch):

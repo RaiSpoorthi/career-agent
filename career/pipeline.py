@@ -14,7 +14,7 @@ from typing import Any
 import yaml
 
 from career import fit as fitmod
-from career import keywords, sources
+from career import keywords, linksafety, sources
 from career.profile import Profile, personal_file
 from career.tracker import Tracker
 
@@ -106,13 +106,37 @@ def discover(cfg: dict[str, Any], fetch_json=sources.fetch_json, fetch_text=sour
 SOURCE_KINDS = ("greenhouse", "lever", "ashby", "recruitee", "smartrecruiters", "remotive", "careers_pages")
 
 
-def ingest(tracker: Tracker, profile: Profile, jobs: list[sources.Job]) -> dict[str, int]:
-    counts = {"new": 0, "duplicate": 0, "needs_description": 0, "auto_skipped": 0}
+def _unvetted(job: sources.Job) -> bool:
+    """Links posted by strangers (Telegram groups) are screened before anything opens them."""
+    return job.source == "telegram" or str(job.extra.get("subject", "")).startswith("Telegram")
+
+
+def ingest(tracker: Tracker, profile: Profile, jobs: list[sources.Job],
+           resolve=linksafety.resolve) -> dict[str, int]:
+    counts = {"new": 0, "duplicate": 0, "needs_description": 0, "auto_skipped": 0, "unsafe": 0}
     for job in jobs:
         key = dedupe_key(job)
         if tracker.find_key(key) or (job.url and tracker.find_url(job.url)):
             counts["duplicate"] += 1
             continue
+        if _unvetted(job):
+            verdict = linksafety.screen(job.url, job.description, resolve=resolve)
+            if verdict.level != linksafety.OK:
+                tracker.add(company=job.company or "Unknown (Telegram)", role=job.title, url=job.url,
+                            location=job.location, text=job.description or job.title,
+                            track=next(iter(profile.tracks)), keyword_score=0, fit=fitmod.SKIP, status="skipped",
+                            source=job.source, dedupe_key=key,
+                            notes=f"Unsafe link, never opened by the agent: {verdict.reason}")
+                counts["unsafe"] += 1
+                continue
+            if verdict.url != job.url:  # a short link: keep where it really leads
+                canon = sources._canonical(verdict.url)
+                job.url, job.source = canon if canon else (verdict.url, job.source)
+                job.extra["apply_url"] = "" if canon else verdict.url
+                key = dedupe_key(job)
+                if tracker.find_key(key) or tracker.find_url(job.url):
+                    counts["duplicate"] += 1
+                    continue
         text = (job.description or "").strip()
         if len(text) < MIN_DESCRIPTION:
             stub = f"{job.title}\n{job.company}\n{job.location}\n{job.url}\n{job.extra.get('subject', '')}".strip()

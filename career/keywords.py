@@ -73,11 +73,13 @@ def match(profile: Profile, job_text: str) -> KeywordMatch:
     return result
 
 
+GENERAL_GROUPS = ("tools", "devtools")
+
+
 def _other_group(skills: dict[str, list[str]], default: str) -> str:
-    """Where a skill goes when the resume has no group of its own: the last group that is neither
-    "languages" (a tool is not a programming language) nor "familiar" (coursework only), or a new group."""
-    others = [g for g in skills if g not in ("languages", "familiar")]
-    return others[-1] if others else default
+    """Where a skill goes when the resume has no group of its own: a general tools group (never a topic
+    group such as security, nor "languages" or "familiar"), created if the resume has none."""
+    return next((g for g in GENERAL_GROUPS if g in skills), "tools")
 
 
 def add_supported_skills(profile: Profile, content: dict, job_text: str) -> list[str]:
