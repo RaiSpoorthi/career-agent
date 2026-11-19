@@ -39,14 +39,32 @@ def _asked(name: str, job_terms: set[str], job_text: str) -> bool:
     return bool(re.search(r"(?<![\w])" + re.escape(name) + r"(?![\w+#])", job_text, re.I))
 
 
-def focus_skills(profile: Profile, content: dict[str, Any], job_text: str, track: str) -> list[str]:
-    """Trim content["skills"] (and the headline) in place. Returns the skill names removed."""
+def requested_skills(profile: Profile, requests: list[str]) -> list[str]:
+    """Profile skills the user named in their own change requests ("add Python and SQL")."""
+    text = " ".join(requests)
+    return [s["name"] for s in profile.skills()
+            if re.search(r"(?<![\w])" + re.escape(s["name"]) + r"(?![\w+#])", text, re.I)]
+
+
+def focus_skills(profile: Profile, content: dict[str, Any], job_text: str, track: str,
+                 pinned: list[str] | tuple[str, ...] = ()) -> list[str]:
+    """Trim content["skills"] (and the headline) in place. Returns the skill names removed.
+
+    `pinned`: skills the user asked for in a change request. They are put back if missing and always kept,
+    ahead of every rule here (the user's own request beats the defaults)."""
     spec = profile.tracks.get(track) or {}
     prefs = profile.preferences
     hide = set(spec.get("hide_categories") or [])
-    skills: dict[str, list[str]] = content.get("skills") or {}
+    skills: dict[str, list[str]] = content.setdefault("skills", {})
+    listed = {n.lower() for names in skills.values() for n in names}
+    for name in pinned:
+        if name.lower() not in listed:
+            level = profile.skill_level(name)
+            group = FAMILIAR_GROUP if level == "academic" else next(
+                (s["group"] for s in profile.skills() if s["name"] == name), "tools")
+            skills.setdefault(group, []).append(name)
     job_terms = set(taxonomy.find_terms(job_text))
-    asked = {n: _asked(n, job_terms, job_text) for names in skills.values() for n in names}
+    asked = {n: _asked(n, job_terms, job_text) or n in pinned for names in skills.values() for n in names}
     before = [n for names in skills.values() for n in names]
 
     for group in list(skills):
@@ -67,7 +85,11 @@ def focus_skills(profile: Profile, content: dict[str, Any], job_text: str, track
             keep = [have[default.lower()]] if default.lower() in have else names[:1]
         skills[LANGUAGE_GROUP] = keep
 
-    _cap(skills, asked, int(prefs.get("max_skills") or 0), int(prefs.get("max_per_group") or 0))
+    total, per_group = int(prefs.get("max_skills") or 0), int(prefs.get("max_per_group") or 0)
+    if pinned:  # make room for what the user asked for instead of dropping a skill the job wants
+        total = total and total + len(pinned)
+        per_group = per_group and per_group + len(pinned)
+    _cap(skills, asked, total, per_group, pinned)
     for group in [g for g, names in skills.items() if not names]:
         del skills[group]
     if FAMILIAR_GROUP in skills:  # coursework-only skills always come last
@@ -76,12 +98,14 @@ def focus_skills(profile: Profile, content: dict[str, Any], job_text: str, track
     return [n for n in before if n not in after]
 
 
-def _cap(skills: dict[str, list[str]], asked: dict[str, bool], total: int, per_group: int) -> None:
-    """Keep at most `total` skills (and `per_group` per group): asked-for ones first, in their order."""
+def _cap(skills: dict[str, list[str]], asked: dict[str, bool], total: int, per_group: int,
+         pinned: list[str] | tuple[str, ...] = ()) -> None:
+    """Keep at most `total` skills (and `per_group` per group): pinned, then asked-for ones, in their order."""
     if not total and not per_group:
         return
     order = [(g, n) for g, names in skills.items() for n in names]
-    ranked = [p for p in order if asked.get(p[1])] + [p for p in order if not asked.get(p[1])]
+    ranked = ([p for p in order if p[1] in pinned] + [p for p in order if asked.get(p[1]) and p[1] not in pinned]
+              + [p for p in order if not asked.get(p[1])])
     chosen: set[tuple[str, str]] = set()
     count: dict[str, int] = {}
     for group, name in ranked:

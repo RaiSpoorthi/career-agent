@@ -7,7 +7,7 @@ import yaml
 from docx import Document
 
 from career import analyze, packet, taxonomy
-from career.focus import focus_skills
+from career.focus import focus_skills, requested_skills
 from career.keywords import add_supported_skills
 from career.profile import Profile
 from career.resume import base_content
@@ -85,6 +85,23 @@ def test_skills_are_capped_with_the_jobs_asks_first(profile):
     assert all(len(v) <= profile.preferences["max_per_group"] for v in content["skills"].values())
     assert {"Nmap", "Wireshark", "Python"} <= set(names)
     assert content["skills"]["familiar"] == ["SIEM"]  # coursework only when the job asks for it
+
+
+def test_skills_you_ask_for_stay_even_when_the_job_names_other_languages(profile):
+    jd = "SRE: Terraform, AWS, Kubernetes, CI/CD, Git, monitoring. TypeScript or Go preferred."
+    pinned = requested_skills(profile, ["add python and sql to the languages section"])
+    assert pinned == ["Python", "SQL"] or set(pinned) == {"Python", "SQL"}
+    content = base_content(profile, "security")
+    content["skills"]["languages"] = ["Python"]  # SQL is missing: it is put back
+    content["skills"]["familiar"] = ["Kubernetes"]
+    removed = focus_skills(profile, content, jd, "security", pinned=pinned)
+    names = shown(content)
+    assert {"Python", "SQL", "Kubernetes"} <= set(names) and "Python" not in removed
+    assert len(names) <= profile.preferences["max_skills"] + len(pinned)
+    # without the request, the job's own rules apply as before
+    content = base_content(profile, "security")
+    focus_skills(profile, content, jd, "security")
+    assert "SQL" not in shown(content)
 
 
 def test_no_title_line_under_the_name_when_turned_off(profile):

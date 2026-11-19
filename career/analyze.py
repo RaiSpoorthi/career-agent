@@ -15,7 +15,7 @@ from typing import Any
 
 from career import guard, keywords
 from career.fit import FitReport
-from career.focus import focus_skills
+from career.focus import focus_skills, requested_skills
 from career.llm import JSONModel
 from career.profile import Profile
 from career.resume import base_content, extra_items, layout, plain_text
@@ -211,7 +211,10 @@ def revise(profile: Profile, llm: JSONModel, job_text: str, previous: dict[str, 
     answer = llm.generate_json(SYSTEM, prompt)
     checked, answer, iterations = _guarded(profile, llm, track, prompt, answer)
     added = keywords.add_supported_skills(profile, checked.content, job_text)
-    removed = focus_skills(profile, checked.content, job_text, track)
+    # Skills you named in any of your own requests for this resume stay, whatever the length rules say.
+    yours = [r["instruction"] for r in (previous.get("model_output") or {}).get("revisions") or []
+             if not r["instruction"].startswith("(automatic)")] + [instruction]
+    removed = focus_skills(profile, checked.content, job_text, track, pinned=requested_skills(profile, yours))
     added = [n for n in added if n not in removed]
 
     output = dict(previous.get("model_output") or {})

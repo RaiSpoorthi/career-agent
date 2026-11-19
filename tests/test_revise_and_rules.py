@@ -197,7 +197,10 @@ def test_revise_follows_the_request_rechecks_and_rescores(tailored, profile):
     folder = t.root / t.get("J0001")["output_dir"]
     saved = json.loads((folder / "analysis.json").read_text(encoding="utf-8"))
     assert [e["id"] for e in saved["content"]["experience"]] == ["helix", "northwind"]  # the request was followed
-    assert "Kubernetes" not in json.dumps(saved["content"])  # the guard still applies
+    # the guard still applies: coursework-only Kubernetes is never claimed, only listed as "familiar"
+    claimed = {g: v for g, v in saved["content"]["skills"].items() if g != "familiar"}
+    assert "Kubernetes" not in json.dumps({**saved["content"], "skills": claimed})
+    assert "Kubernetes" in saved["content"]["skills"]["familiar"]
     rev = saved["model_output"]["revisions"][-1]
     assert rev["ats_before"] == "84" and rev["ats_after"] == "91"
     assert t.get("J0001")["ats_after"] == "91"
