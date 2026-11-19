@@ -70,14 +70,12 @@ def _question_label(pattern: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[()?^$\\]", " ", pattern.replace("|", " / "))).strip().capitalize()
 
 
-def _last_scheduled_run(root: Path) -> str:
-    """'Last automatic run: <when>' from data/scheduled.log (written by run_scheduled.pyw), or ''."""
-    try:
-        text = (root / "data" / "scheduled.log").read_text(encoding="utf-8")
-    except OSError:
-        return ""
-    starts = re.findall(r"===== (\d{4}-\d\d-\d\d \d\d:\d\d) scheduled run", text)
-    return f"Last automatic run: {starts[-1]}" if starts else ""
+def _last_agent_run(tracker: Tracker) -> str:
+    """'Last agent run: <when> · <what it did>' from the run log, which syncs from the cloud runs too."""
+    runs = sorted(tracker.events(50, level="run"), key=lambda e: e["ts"])
+    finished = [e for e in runs if e["message"].startswith("Run finished")]
+    last = (finished or runs or [None])[-1]
+    return f"Last agent run: {last['ts'][:16]} · {last['message'].removeprefix('Run finished: ')}" if last else ""
 
 
 def spawn_cli(root: Path, *args: str) -> subprocess.Popen:
@@ -570,7 +568,7 @@ def create_app(root: Path = ROOT) -> Flask:
         recent = sorted((r for r in all_rows if r["status"] in ("applied-auto", "completed-manual")
                          and (r["updated"] or "") >= since), key=lambda r: r["updated"], reverse=True)
         return render_template("dashboard.html", active="home", counts=counts, best=fresh[:10], ready=ready,
-                               recent=recent, last_auto=_last_scheduled_run(root), needs=needs, log="\n".join(log) or "No activity yet.",
+                               recent=recent, last_auto=_last_agent_run(tracker), needs=needs, log="\n".join(log) or "No activity yet.",
                                today=datetime.now().strftime("%A, %d %B %Y"))
 
     @app.get("/needs")

@@ -524,11 +524,11 @@ def test_needs_you_page_and_actions(client):
 def test_home_lists_what_was_submitted_while_you_were_away(client):
     c, t, started = client
     t.update("J0001", status="applied-auto")
-    (t.root / "data").mkdir(exist_ok=True)
-    (t.root / "data" / "scheduled.log").write_text("\n===== 2026-11-19 07:00 scheduled run =====\n", encoding="utf-8")
+    t.log("run started", level="run")
+    t.log("Run finished: 3 new job(s), 2 resume(s) tailored, 1 submitted, 1 waiting for you", level="run")
     page = c.get("/").get_data(as_text=True)
     assert "Since your last check" in page and "submitted by the agent" in page
-    assert "Last automatic run: 2026-11-19 07:00" in page and "Finish 1 waiting for you" in page
+    assert "Last agent run: " in page and "1 submitted, 1 waiting for you" in page and "Finish 1 waiting for you" in page
 
 
 def test_apply_result_is_shown_even_when_it_fails(client, monkeypatch):

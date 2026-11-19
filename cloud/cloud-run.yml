@@ -10,6 +10,12 @@ on:
   schedule:
     - cron: "30 1 * * *"    # 07:00 India time (01:30 UTC)
     - cron: "30 12 * * *"   # 18:00 India time (12:30 UTC)
+    # Backups: GitHub sometimes skips a scheduled run when it is busy. These start an hour and two hours later
+    # and stop at once if a cloud run already saved its work in the last 3 hours.
+    - cron: "30 2 * * *"
+    - cron: "30 3 * * *"
+    - cron: "30 13 * * *"
+    - cron: "30 14 * * *"
   workflow_dispatch: {}     # "Run workflow" button on GitHub
 
 permissions:
@@ -30,25 +36,39 @@ jobs:
           path: state
           fetch-depth: 0
 
+      - name: Skip if a run already happened (backup times only)
+        id: guard
+        working-directory: state
+        run: |
+          last=$(git log -1 --format=%ct --grep="^Cloud run" || true)
+          if [ "${{ github.event_name }}" = "schedule" ] && [ -n "$last" ] && [ $(( $(date +%s) - last )) -lt 10800 ]; then
+            echo "A cloud run saved its work less than 3 hours ago; nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Get the code
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ vars.APP_REPO || 'RaiSpoorthi/career-agent' }}
           path: app
 
-      - uses: actions/setup-python@v5
+      - if: steps.guard.outputs.skip != 'true'
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: app/requirements.txt
 
       - name: Install
+        if: steps.guard.outputs.skip != 'true'
         working-directory: app
         run: |
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
       - name: Run the agent
+        if: steps.guard.outputs.skip != 'true'
         working-directory: app
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -62,6 +82,7 @@ jobs:
           python jobs.py sync --state ../state --from-state --no-git
 
       - name: Save the state
+        if: steps.guard.outputs.skip != 'true'
         working-directory: state
         run: |
           git config user.name "career-agent"
