@@ -64,6 +64,9 @@ def build(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str
     city = c["location"].split(",")[0].strip()
     code_match = re.match(r"\s*(\+\d{1,4})[\s-]*(.*)", c["phone"])
     code, national = (code_match.group(1), code_match.group(2).strip()) if code_match else ("", c["phone"])
+    hiring = normalize(job.get("company", ""))
+    worked_here = bool(hiring) and any(normalize(e["org"]) in hiring or hiring in normalize(e["org"])
+                                       for e in data["experience"])
     rules: list[tuple[str, str, str]] = []
 
     # Your own answers come first so they can override anything below.
@@ -96,8 +99,13 @@ def build(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str
         ("gpa", r"\bc?gpa\b|grade point", edu["score"].replace("GPA", "").strip()),
         ("school", r"school|university|college|institution", edu["school"]),
         ("degree", r"degree|qualification|field of study|discipline|major", edu["degree"]),
-        ("company", r"current (company|employer|organi[sz]ation)|^company$|^employer$|^org", now["org"]),
-        ("title", r"current (job )?title|current (role|position|designation)|^title$|job title", now["title"]),
+        # "Have you previously worked for <this company>?": answered from the employers on your profile.
+        ("worked_here", r"(previously|ever|before|formerly) (been )?(work|employ)\w* (for|at|by)|former employee",
+         "Yes" if worked_here else "No"),
+        ("company", r"(current|most recent|latest)\W+(\w+\W+){0,3}(company|employer|organi[sz]ation)|^company$|"
+                    r"^employer$|^org", now["org"]),
+        ("title", r"(current|most recent|latest)\W+(\w+\W+){0,3}(job )?(title|role|position|designation)|"
+                  r"^title$|job title", now["title"]),
         ("country", r"^country|country of residence|which country", country),
         ("city", r"^city\b|current city|city of residence|which city", city),
         ("location", r"location|city|where are you (based|located)|current address", c["location"]),

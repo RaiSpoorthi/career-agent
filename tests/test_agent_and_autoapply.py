@@ -125,6 +125,12 @@ def test_answers_come_only_from_profile_and_your_file(profile):
     assert get("What is your current CTC?") == "Internship stipend"
     assert get("Describe your experience with Kubernetes in production") is None
     assert get("Gender") is None and get("Why do you want to work here?") is None  # no cover note: no answer
+    now = profile.data["experience"][0]
+    assert get("Who is your current (or most recent) employer?") == now["org"]
+    assert get("What is your current (or most recent) title?") == now["title"]
+    assert get("Have you previously worked for Acme (formerly Acme Labs)?*") == "No"
+    rules_here = ans.build(profile, {"company": now["org"]}, fit, extra={})
+    assert ans.answer_for(rules_here, f"Have you ever been employed by {now['org']}?").value == "Yes"
     abroad = fitmod.check(profile, "Engineer in Berlin, Germany. Visa sponsorship available.", "Berlin")
     rules = ans.build(profile, row, abroad, extra={})
     assert ans.answer_for(rules, "Do you require visa sponsorship?").value == "Yes"
