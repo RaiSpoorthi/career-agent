@@ -109,15 +109,52 @@ def better_names(role: str, company: str, text: str) -> dict[str, str]:
     return {}
 
 
+def _places(tracker) -> list[str]:
+    """The `locations` rule from sources.yaml (where a job may be), lower-case."""
+    from career.pipeline import CONFIG, load_config
+    from career.profile import personal_file
+    try:
+        return [str(p).lower() for p in load_config(personal_file(CONFIG, tracker.root)).get("locations") or []]
+    except Exception:
+        return []
+
+
 def fill_missing(tracker, profile, limit: int = 60, delay: float = sources.REQUEST_DELAY_SECONDS,
-                 fetch=fetch_description, sleep=time.sleep, say=print) -> dict[str, int]:
+                 fetch=fetch_description, sleep=time.sleep, say=print, find_on_board=None) -> dict[str, int]:
     """Fetch descriptions for saved jobs still waiting for one, and score them (pipeline.attach_description)."""
     from career.pipeline import attach_description
 
-    counts = {"found": 0, "not_found": 0}
+    if find_on_board is None:
+        from career.findjob import find as find_on_board
+    counts = {"found": 0, "not_found": 0, "on_company_board": 0}
     todo = [r for r in tracker.rows("needs-description") if TRIED not in (r["notes"] or "")][:limit]
+    places = _places(tracker)
+    feeds: dict = {}
     for row in todo:
         url = row["apply_url"] or row["url"]
+        if any(b in (urlparse(url).hostname or "") for b in BLOCKED):
+            # LinkedIn / Naukri are never opened: look for the same job on the company's own public board.
+            names = better_names(row["role"], row["company"], "")
+            if names:
+                row = tracker.update(row["id"], **names)
+            if match := find_on_board(row["company"], row["role"], row["location"], places, cache=feeds):
+                if (same := tracker.find_url(match.url)) and same["id"] != row["id"]:
+                    tracker.update(row["id"], status="skipped", notes=f"Same job as {same['id']} (found on the "
+                                                                      f"company's own job board).")
+                    say(f"  {row['id']}: same job as {same['id']}")
+                    continue
+                tracker.update(row["id"], role=match.title, location=match.location or row["location"],
+                               apply_url=match.apply_url)
+                row = attach_description(tracker, profile, row["id"], match.description)
+                found_note = f"Found on the company's own job board ({match.board}): {match.url}"
+                row = tracker.update(row["id"], notes="; ".join(n for n in (found_note, row["notes"]) if n))
+                counts["found"] += 1
+                counts["on_company_board"] += 1
+                say(f"  {row['id']}: found on {match.board} -> fit {row['fit']}, keyword {row['keyword_score']}%")
+            else:
+                counts["not_found"] += 1
+                tracker.update(row["id"], notes=f"{row['notes']} {TRIED}".strip())
+            continue
         text = fetch(url)
         if text:
             names = better_names(row["role"], row["company"], text)

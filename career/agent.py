@@ -52,6 +52,12 @@ def run_once(tracker: Tracker, profile: Profile, say=print, *, discover=None, bu
         found, notes = pipeline.discover(cfg)
         inbox, inbox_notes = sources.read_inbox(tracker.root / "inbox")
         found, notes = found + inbox, notes + inbox_notes
+        try:  # posts you forwarded to your own Telegram bot, if you set one up
+            from career import telegrambot
+            if telegrambot.token():
+                found += telegrambot.collect(tracker, say=say)
+        except Exception as exc:
+            notes.append(f"Telegram bot: {str(exc)[:160]}")
         try:  # Gmail, if an app password (or the Google API) is set up
             from career.gmail import fetch_alerts
             for raw in fetch_alerts(tracker.root):

@@ -3,7 +3,7 @@
 # that repo holds your profile and job data. See README, "Run it in the cloud".
 #
 # Secrets (state repo -> Settings -> Secrets and variables -> Actions): GEMINI_API_KEY, and for alert emails and
-# security codes GMAIL_ADDRESS and GMAIL_APP_PASSWORD. Variable APP_REPO = the public code repo (owner/name).
+# security codes GMAIL_ADDRESS and GMAIL_APP_PASSWORD; optional TELEGRAM_BOT_TOKEN. Variable APP_REPO = the public code repo (owner/name).
 name: Career Agent (cloud run)
 
 on:
@@ -78,6 +78,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CAREER_AGENT_HEADLESS: "1"
           TZ: Asia/Kolkata
         run: |

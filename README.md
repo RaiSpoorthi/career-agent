@@ -337,8 +337,15 @@ marked read, moved or sent. Remove the two lines (or revoke the app password) to
 **Without Gmail access:** open an alert email, use **⋮ → Download message** to save a `.eml` file into `inbox/`,
 then click **Read alert emails** (or `python jobs.py ingest-inbox`).
 
-Alert emails contain only the job title and link. Those jobs show under **Need the job description**: open the link
-and use the **Save to Career Agent** bookmark (below), or paste the description on the job page.
+Alert emails contain only the job title, company and link. Every run then looks for **the same job on the company's
+own public job board** (Greenhouse, Lever, Ashby, SmartRecruiters: `career/findjob.py`), never on LinkedIn. When it
+finds a close title match in a place your rules allow, it reads the full description there, tailors a resume and
+applies on that public form like any other job. Companies on Workday or their own portals can't be matched this way:
+those jobs show under **Need the job description**; open the link and use the **Save to Career Agent** bookmark
+(below), or paste the description on the job page.
+
+Tip: in LinkedIn, turn on job alerts for your searches (**Jobs -> search -> Set alert**, frequency **Daily**, by
+email). The more alerts arrive, the more jobs the agent works on for you.
 
 ### Telegram job groups
 1. In **Telegram Desktop**, open the group, then **⋮ → Export chat history**. Untick photos and other media, set
@@ -347,7 +354,17 @@ and use the **Save to Career Agent** bookmark (below), or paste the description 
 2. Click **Read alert emails** on the dashboard (or `python jobs.py ingest-inbox`, or wait for the next run).
 
 Every job link posted in the last 14 days becomes a job (links to Telegram, WhatsApp and social sites are ignored).
-Re-exporting the same group later is fine: jobs already seen are skipped. No Telegram login, bot or automation is used.
+Re-exporting the same group later is fine: jobs already seen are skipped. No Telegram login or automation is used.
+
+**Or forward posts to your own bot (one tap, no exports).** The agent never reads the groups; you forward the posts
+you like to a private bot only you use.
+1. In Telegram, open **@BotFather**, send `/newbot`, choose a name and a username ending in `bot`. Copy the token.
+2. Add `TELEGRAM_BOT_TOKEN=<the token>` to `.env` (and, with cloud runs, as a secret of the same name in the state
+   repo).
+3. Open your new bot, press **Start**, then run `python jobs.py telegram-setup`. It remembers your chat; messages from
+   anyone else are ignored.
+4. From now on: long-press a job post -> **Forward** -> your bot. Every run collects what you forwarded (Telegram keeps
+   it for 24 hours, and runs happen twice a day), screens the links and replies with what it saved.
 
 **Safety first.** Links posted by strangers are screened before anything opens them (`career/linksafety.py`).
 Saved as skipped with the reason, and never opened by the agent: links that are not https, bare IP addresses,

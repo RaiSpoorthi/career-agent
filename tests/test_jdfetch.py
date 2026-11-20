@@ -81,7 +81,7 @@ def test_fill_missing_scores_found_jobs_and_does_not_retry_the_rest(tmp_path, pr
         calls.append(url)
         return jdfetch.sources.html_to_text(BODY) if url.endswith("/0") else ""
     assert jdfetch.fill_missing(t, profile, fetch=fetch, sleep=lambda s: None, say=lambda *_: None) == \
-        {"found": 1, "not_found": 1}
+        {"found": 1, "not_found": 1, "on_company_board": 0}
     found, missing = t.get("J0001"), t.get("J0002")
     assert found["status"] in ("discovered", "skipped") and found["company"] == "Acme"
     assert found["role"] == "Software Engineer" and missing["status"] == "needs-description"

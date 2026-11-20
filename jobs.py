@@ -12,6 +12,7 @@ The agent (does everything below in one pass):
   python jobs.py revise J0001 "..."       tell it what to change in a tailored resume; it re-checks the ATS score
   python jobs.py rescore                  re-check saved jobs after you change your rules
   python jobs.py ui                       dashboard at http://127.0.0.1:5055 (Needs you, logs, settings)
+  python jobs.py telegram-setup           connect your Telegram bot: forward job posts to it
 
 Free (no AI, no internet):
   python jobs.py add                      save a job (paste its description), get keyword score + fit check
@@ -378,6 +379,18 @@ def cmd_cloud_setup(args) -> int:
     return cmd_sync(argparse.Namespace(state=None, from_state=False, no_git=False))
 
 
+def cmd_telegram_setup(args) -> int:
+    from career import telegrambot
+
+    try:
+        say(telegrambot.setup(tracker.Tracker()))
+    except telegrambot.BotError as exc:
+        say(str(exc))
+        return 1
+    say("Forward job posts to your bot; every run picks them up (Telegram keeps them for 24 hours).")
+    return 0
+
+
 def cmd_fetch_descriptions(args) -> int:
     from career import jdfetch
 
@@ -451,6 +464,7 @@ def build_parser() -> argparse.ArgumentParser:
     cs = sub.add_parser("cloud-setup", help="connect this computer to your private state repo (once)")
     cs.add_argument("repo", help="OWNER/NAME of the private repo, e.g. you/career-agent-state")
     sub.add_parser("fetch-descriptions", help="fetch full descriptions for jobs that came with only a title")
+    sub.add_parser("telegram-setup", help="connect your own Telegram bot (send it /start first)")
     sub.add_parser("rescore", help="re-check saved jobs against your current rules (after editing preferences)")
 
     lst = sub.add_parser("list", help="show the tracker")
@@ -500,7 +514,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 COMMANDS = {"init": cmd_init, "run": cmd_run, "apply-now": cmd_apply_now, "revise": cmd_revise,
-            "rescore": cmd_rescore, "fetch-descriptions": cmd_fetch_descriptions,
+            "rescore": cmd_rescore, "fetch-descriptions": cmd_fetch_descriptions, "telegram-setup": cmd_telegram_setup,
             "sync": cmd_sync, "cloud-setup": cmd_cloud_setup,
             "auto-apply": cmd_auto_apply, "takeover": cmd_auto_apply,
             "discover": cmd_discover, "ingest-inbox": cmd_ingest_inbox, "attach": cmd_attach,

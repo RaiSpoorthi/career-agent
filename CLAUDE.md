@@ -21,7 +21,8 @@ A personal job-application system that anyone can clone and fill with their own 
 ## Job discovery and application rules (keep these)
 - Never log in to, scrape or automate LinkedIn, Naukri, Indeed or any site that needs an account
   (`BLOCKED_HOSTS` in career/autoapply.py). Their jobs come in only from the user's own alert emails, Telegram
-  chat exports the user makes, or the "Save to Career Agent" bookmark, which only pre-fills Add job from a page
+  chat exports the user makes, posts the user forwards to their own bot (career/telegrambot.py: only their chat id,
+  never reading groups), or the "Save to Career Agent" bookmark, which only pre-fills Add job from a page
   the user is viewing and clicks on. Never add code that fetches those sites. Never remove a host from that list
   or add stealth/anti-detection code (if a site rejects the agent's browser, the user applies in their own).
 - Auto-apply is allowed only on public, no-account application forms (`SUPPORTED_HOSTS`). It answers only
@@ -36,6 +37,8 @@ A personal job-application system that anyone can clone and fill with their own 
 - Links from strangers (Telegram exports) go through `career/linksafety.py` before anything opens them; unsafe ones
   are saved as skipped and never opened. Never weaken that screen. `career/jdfetch.py` reads only public job data
   (job-board JSON, or page text when robots.txt allows) and never fetches account sites or unsafe links.
+  For LinkedIn/Naukri jobs, `career/findjob.py` looks up the same company + title on the company's own public board
+  feeds (never the LinkedIn page) and accepts only a close title match in an allowed location.
 - Email security codes (career/gmail.py `wait_for_code`) may be read only from `CODE_SENDERS` (application systems),
   read-only, from the last hour, right after the agent submitted. Never read other mail for this.
 - Career pages: robots.txt must allow it, same-site links only, 2-second delay, max 25 listings per company.

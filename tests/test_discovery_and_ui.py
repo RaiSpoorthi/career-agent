@@ -41,6 +41,7 @@ def alert_eml(sender: str, subject: str, html_body: str) -> bytes:
 LINKEDIN_ALERT = alert_eml(
     "LinkedIn Job Alerts <jobalerts-noreply@linkedin.com>", "IAM Analyst: 2 new jobs",
     '<a href="https://www.linkedin.com/comm/jobs/view/4012345678/?trackingId=abc&amp;refId=x">IAM Analyst</a>'
+    '<p>Acme Identity · Bengaluru, Karnataka, India</p>'
     '<a href="https://www.linkedin.com/comm/jobs/view/4012345678/?trk=2">View job</a>'
     '<a href="https://www.linkedin.com/comm/jobs/view/4099999999">Cloud Security Engineer</a>'
     '<a href="https://www.linkedin.com/feed/">Home</a>')
@@ -73,6 +74,9 @@ def test_linkedin_alert_links_are_canonical_and_deduplicated():
     assert [j.url for j in jobs] == ["https://www.linkedin.com/jobs/view/4012345678/",
                                      "https://www.linkedin.com/jobs/view/4099999999/"]
     assert jobs[0].title == "IAM Analyst" and jobs[0].source == "linkedin-alert"
+    # the line under each job names the company and place, so the job can be found on the company's own board
+    assert (jobs[0].company, jobs[0].location) == ("Acme Identity", "Bengaluru, Karnataka, India")
+    assert jobs[1].company == ""
 
 
 def test_naukri_alert_link_drops_tracking():

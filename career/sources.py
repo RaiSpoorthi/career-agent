@@ -196,6 +196,7 @@ class _Links(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.links: list[tuple[str, str]] = []
+        self.after: list[list[str]] = []  # text between each link and the next one (alert emails: company, place)
         self._href: str | None = None
         self._text: list[str] = []
 
@@ -207,10 +208,13 @@ class _Links(HTMLParser):
     def handle_data(self, data):
         if self._href is not None:
             self._text.append(data)
+        elif self.after and data.strip() and len(self.after[-1]) < 4:
+            self.after[-1].append(" ".join(data.split()))
 
     def handle_endtag(self, tag):
         if tag == "a" and self._href is not None:
             self.links.append((self._href, " ".join(" ".join(self._text).split())))
+            self.after.append([])
             self._href = None
 
 
@@ -286,6 +290,17 @@ def _canonical(url: str) -> tuple[str, str] | None:
     return None
 
 
+COMPANY_LINE = re.compile(r"^(?P<company>[^·•|]{2,80}?)\s*[·•|]\s*(?P<location>[^·•|]{2,80})")
+
+
+def _company_line(after: list[str]) -> tuple[str, str]:
+    """'Acme · Bengaluru, Karnataka, India' (the line under a job in LinkedIn alert emails) -> company, place."""
+    for line in after[:2]:
+        if m := COMPANY_LINE.match(line):
+            return m.group("company").strip(), m.group("location").strip()
+    return "", ""
+
+
 def parse_alert_eml(raw: bytes) -> list[Job]:
     msg = email.message_from_bytes(raw, policy=policy.default)
     sender_subject = f"{msg.get('from', '')} {msg.get('subject', '')}".lower()
@@ -295,17 +310,18 @@ def parse_alert_eml(raw: bytes) -> list[Job]:
     collector.feed(content)
 
     jobs: dict[str, Job] = {}
-    for href, text in collector.links:
+    for (href, text), after in zip(collector.links, collector.after, strict=True):
         canon = _canonical(html.unescape(href))
         if not canon:
             continue
         url, source = canon
         title = text if text.lower() not in GENERIC_TEXT else ""
+        company, location = _company_line(after) if title else ("", "")
         if url not in jobs:
-            jobs[url] = Job(source=source, title=title, company="", url=url,
+            jobs[url] = Job(source=source, title=title, company=company, url=url, location=location,
                             extra={"subject": msg.get("subject", "")})
         elif title and not jobs[url].title:
-            jobs[url].title = title
+            jobs[url].title, jobs[url].company, jobs[url].location = title, company, location
     for match in list(LINKEDIN_JOB.finditer(content)) + list(NAUKRI_JOB.finditer(content)):
         canon = _canonical(match.group(0))
         if canon and canon[0] not in jobs:
