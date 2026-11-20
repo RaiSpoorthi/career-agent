@@ -8,14 +8,9 @@ name: Career Agent (cloud run)
 
 on:
   schedule:
-    - cron: "30 1 * * *"    # 07:00 India time (01:30 UTC)
-    - cron: "30 12 * * *"   # 18:00 India time (12:30 UTC)
-    # Backups: GitHub sometimes skips a scheduled run when it is busy. These start an hour and two hours later
-    # and stop at once if a cloud run already saved its work in the last 3 hours.
-    - cron: "30 2 * * *"
-    - cron: "30 3 * * *"
-    - cron: "30 13 * * *"
-    - cron: "30 14 * * *"
+    # GitHub starts scheduled runs late (sometimes by hours) or skips them when it is busy, so this checks every
+    # hour and works only when a run is due: the 07:00 or 18:00 India-time run hasn't happened yet today.
+    - cron: "17 * * * *"
   workflow_dispatch: {}     # "Run workflow" button on GitHub
 
 permissions:
@@ -36,14 +31,23 @@ jobs:
           path: state
           fetch-depth: 0
 
-      - name: Skip if a run already happened (backup times only)
+      - name: Is a run due? (scheduled checks only)
         id: guard
         working-directory: state
+        env:
+          TZ: Asia/Kolkata
         run: |
+          [ "${{ github.event_name }}" = "schedule" ] || exit 0   # "Run workflow" by hand always runs
+          now=$(date +%s); today=$(date +%F)
+          slot=$(date -d "$today 18:00" +%s)
+          [ "$now" -ge "$slot" ] || slot=$(date -d "$today 07:00" +%s)
+          [ "$now" -ge "$slot" ] || slot=$(date -d "$(date -d yesterday +%F) 18:00" +%s)   # yesterday 18:00
           last=$(git log -1 --format=%ct --grep="^Cloud run" || true)
-          if [ "${{ github.event_name }}" = "schedule" ] && [ -n "$last" ] && [ $(( $(date +%s) - last )) -lt 10800 ]; then
-            echo "A cloud run saved its work less than 3 hours ago; nothing to do."
+          if [ -n "$last" ] && [ "$last" -ge "$slot" ]; then
+            echo "This slot's run already happened ($(date -d @$last)); nothing to do."
             echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Run due: the last cloud run was before $(date -d @$slot)."
           fi
 
       - name: Get the code

@@ -123,8 +123,8 @@ application goes to **Needs you** with the reason.
 
 ### Run it in the cloud instead (computer can be off)
 GitHub runs the agent for free at 7:00 and 18:00 India time (`cloud/cloud-run.yml`; a run takes about 10-20
-minutes of the 2,000 free minutes a month that private repos get). GitHub sometimes skips a scheduled run when it is busy,
-so backup times an hour and two hours later start one only if none has run yet. Your jobs, resumes and profile live in a
+minutes of the 2,000 free minutes a month that private repos get). GitHub often starts scheduled runs late or skips them,
+so the workflow checks every hour and runs only when the 7:00 or 18:00 run is still due. Your jobs, resumes and profile live in a
 **private** repo of yours, never in the public code repo.
 
 1. On GitHub, create a **private** repo, e.g. `career-agent-state` (empty, no README).
