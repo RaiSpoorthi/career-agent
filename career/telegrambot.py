@@ -95,10 +95,10 @@ def setup(tracker, call=call) -> str:
     """Remember the chat of whoever sent /start to the bot (you, right after creating it)."""
     me = call("getMe")
     starts = [u["message"] for u in call("getUpdates", {"timeout": 0})
-              if (u.get("message") or {}).get("text", "").startswith("/start")
-              and (u["message"].get("chat") or {}).get("type") == "private"]
+              if (u.get("message") or {}).get("text") and (u["message"].get("chat") or {}).get("type") == "private"]
     if not starts:
-        raise BotError(f"Open Telegram, find @{me.get('username')}, press Start (or send /start), then run this again.")
+        raise BotError(f"Open t.me/{me.get('username')} in Telegram, press Start or send any message, then run "
+                       "this again.")
     chat = starts[-1]["chat"]
     tracker.set_setting(CHAT_SETTING, str(chat["id"]))
     call("sendMessage", {"chat_id": chat["id"], "text": "Connected to Career Agent. Forward job posts here; every run "
