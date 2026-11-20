@@ -333,6 +333,12 @@ document.getElementById('f').addEventListener('submit', e => {
 <label for="city">City *</label><input id="city" name="city" required>
 <label for="ctry">Country *</label><select id="ctry" name="ctry" required><option value="">Select...</option>
 <option>Indonesia</option><option>India</option></select>"""),
+    # Like Lever's custom questions: no <label>; the question sits in a div next to the field.
+    "/lever": FORM.replace("EXTRA", """
+<ul><li class="application-question custom-question"><div><div class="application-label full-width textarea">
+<div class="text">Notice Period<span class="required">✱</span></div></div>
+<div class="application-field full-width required-field"><textarea class="card-field-input" name="cards[abc][field0]"
+ required placeholder="Type your response"></textarea></div></div></li></ul>"""),
     # Like Greenhouse: a hidden phone-code list that also uses role=option, a dropdown that opens on click with
     # a hidden twin input for validation, a tick-the-source question, and a "source of right to work" question.
     "/dropdowns": FORM.replace("EXTRA", """
@@ -465,6 +471,13 @@ def test_country_code_city_and_country_boxes_are_filled_from_the_profile(browser
     [data] = received
     assert data["cc"] == "India (+91)" and data["phone"] == profile.contact["phone"].removeprefix("+91").strip()
     assert data["city"] == profile.contact["location"].split(",")[0] and data["ctry"] == "India"
+
+
+def test_lever_custom_questions_are_read_by_their_question_text(browser_job, profile):
+    t, make, go, received = browser_job
+    result = go(make("/lever"))
+    assert result.outcome == "submitted" and any("Notice Period" in f for f in result.filled)
+    assert received[0]["cards[abc][field0]"] == f"{profile.preferences['notice_period_days']} days"
 
 
 def test_city_has_its_other_name_for_dropdowns(profile):

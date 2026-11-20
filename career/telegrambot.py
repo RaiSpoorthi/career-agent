@@ -26,6 +26,8 @@ class BotError(RuntimeError):
 
 
 def token() -> str:
+    from career.llm import load_env
+    load_env()  # .env never overrides a value already set (tests set it empty)
     return os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 
 

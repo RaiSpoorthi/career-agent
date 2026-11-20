@@ -61,7 +61,8 @@ COLLECT_JS = r"""
     const own = ownLabel(el); if (own) return own;
     let p = el.parentElement;
     for (let i = 0; i < 4 && p && !stop(p); i++, p = p.parentElement) {
-      const l = p.querySelector('legend, label'); if (l && !l.contains(el)) return text(l);
+      // .application-label: Lever's custom questions put the question in a div next to the field
+      const l = p.querySelector('legend, label, .application-label'); if (l && !l.contains(el)) return text(l);
     }
     return el.getAttribute('placeholder') || el.name || '';
   };
