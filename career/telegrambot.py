@@ -28,7 +28,8 @@ class BotError(RuntimeError):
 def token() -> str:
     from career.llm import load_env
     load_env()  # .env never overrides a value already set (tests set it empty)
-    return os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    # A token is plain ASCII; drop anything a copy/paste or a Windows pipe added (a BOM, spaces, quotes).
+    return "".join(c for c in os.environ.get("TELEGRAM_BOT_TOKEN", "") if c.isascii() and c.isalnum() or c in ":_-")
 
 
 def call(method: str, params: dict | None = None, bot_token: str = "") -> dict | list:
