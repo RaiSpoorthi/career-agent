@@ -67,6 +67,14 @@ def test_sanitize_reverts_restores_and_filters(profile):
     assert result.reverted >= 2
 
 
+def test_skills_keep_their_own_group_never_the_first_one(profile):
+    proposed = {"skills": {"languages": ["Java", "Python", "Git"], "cloud": ["AWS", "CI/CD"]}}
+    skills = guard.sanitize(profile, "software", proposed).content["skills"]
+    assert skills["languages"] == ["Java", "Python"]  # only languages under Languages
+    assert {"AWS", "CI/CD"} <= set(skills["cloud"])  # created for this track if it had no cloud group
+    assert "Git" in [n for g, names in skills.items() if g != "languages" for n in names]
+
+
 def test_sanitize_with_nothing_gives_base(profile):
     result = guard.sanitize(profile, "software", {})
     base = base_content(profile, "software")

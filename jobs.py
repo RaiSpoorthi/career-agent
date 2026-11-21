@@ -13,6 +13,7 @@ The agent (does everything below in one pass):
   python jobs.py rescore                  re-check saved jobs after you change your rules
   python jobs.py ui                       dashboard at http://127.0.0.1:5055 (Needs you, logs, settings)
   python jobs.py telegram-setup           connect your Telegram bot: forward job posts to it
+  python jobs.py finish-all               open each waiting application filled in, to submit one after another
 
 Free (no AI, no internet):
   python jobs.py add                      save a job (paste its description), get keyword score + fit check
@@ -430,6 +431,39 @@ def cmd_auto_apply(args) -> int:
     return 0 if result.outcome in ("submitted", "completed-manual") else 3
 
 
+def finish_queue(t) -> list[dict]:
+    """Applications waiting for you whose form the agent can fill, best fit first."""
+    from career import autoapply
+
+    rows = [r for r in t.rows("awaiting-human")
+            if r["output_dir"] and autoapply.host_kind(r["apply_url"] or r["url"]) in ("supported", "unsupported")]
+    return sorted(rows, key=lambda r: (r["fit"] != "APPLY", -int(r["keyword_score"] or 0)))
+
+
+def cmd_finish_all(args) -> int:
+    """Open each waiting application in turn, filled in, for you to check and submit (or close to skip)."""
+    from career import autoapply
+
+    t, prof = tracker.Tracker(), _profile()
+    queue = finish_queue(t)
+    if not queue:
+        say("Nothing to finish: no waiting application has a form the agent can fill.")
+        return 0
+    say(f"{len(queue)} application(s) to finish. Each opens filled in: tick the captcha if there is one, check it "
+        "and press Submit. Close the window to skip one.")
+    done = 0
+    for index, row in enumerate(queue, 1):
+        say(f"[{index}/{len(queue)}] {row['id']} {row['role']} @ {row['company']}")
+        try:
+            result = autoapply.apply_to_job(t, prof, row["id"], mode="takeover", say=say)
+        except autoapply.Unavailable as exc:
+            say(str(exc))
+            return 2
+        done += result.outcome == "completed-manual"
+    say(f"Finished: {done} submitted, {len(queue) - done} skipped or not confirmed.")
+    return 0
+
+
 def cmd_ui(args) -> int:
     from ui.app import create_app
 
@@ -464,6 +498,7 @@ def build_parser() -> argparse.ArgumentParser:
     cs = sub.add_parser("cloud-setup", help="connect this computer to your private state repo (once)")
     cs.add_argument("repo", help="OWNER/NAME of the private repo, e.g. you/career-agent-state")
     sub.add_parser("fetch-descriptions", help="fetch full descriptions for jobs that came with only a title")
+    sub.add_parser("finish-all", help="open each waiting application filled in, one after another, to submit")
     sub.add_parser("telegram-setup", help="connect your own Telegram bot (send it /start first)")
     sub.add_parser("rescore", help="re-check saved jobs against your current rules (after editing preferences)")
 
@@ -515,6 +550,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"init": cmd_init, "run": cmd_run, "apply-now": cmd_apply_now, "revise": cmd_revise,
             "rescore": cmd_rescore, "fetch-descriptions": cmd_fetch_descriptions, "telegram-setup": cmd_telegram_setup,
+            "finish-all": cmd_finish_all,
             "sync": cmd_sync, "cloud-setup": cmd_cloud_setup,
             "auto-apply": cmd_auto_apply, "takeover": cmd_auto_apply,
             "discover": cmd_discover, "ingest-inbox": cmd_ingest_inbox, "attach": cmd_attach,

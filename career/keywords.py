@@ -100,7 +100,10 @@ def add_supported_skills(profile: Profile, content: dict, job_text: str) -> list
             continue
         skill = next((by_name[n] for n in names if n in by_name), None)
         if skill and skill["level"] in CLAIMABLE:
-            group = skill["group"] if skill["group"] in skills else _other_group(skills, skill["group"])
+            # A language always goes under Languages (created if needed); other skills keep their own group
+            # when the resume has it, else a general tools group.
+            group = skill["group"] if skill["group"] in skills or skill["group"] == "languages" \
+                else _other_group(skills, skill["group"])
             name = skill["name"]
         elif skill and skill["level"] == "academic":
             group, name = "familiar", skill["name"]

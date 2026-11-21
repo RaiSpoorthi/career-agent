@@ -46,6 +46,9 @@ ACCENT_HEX = "1F4E79"
 ACCENT = colors.HexColor("#" + ACCENT_HEX)
 MUTED = colors.HexColor("#555555")
 MAX_SIZE, MIN_SIZE, SIZE_STEP = 10.0, 8.5, 0.25
+# A short resume is grown to fill its page (same words, so the ATS score is unchanged): text up to GROW_SIZE,
+# then more space between lines and sections, up to MAX_GAP times the normal spacing.
+GROW_SIZE, MAX_GAP, GAP_STEP = 11.0, 2.6, 0.1
 
 
 class OnePageError(RuntimeError):
@@ -58,6 +61,7 @@ class Fitted:
     size: float                  # body font size in points
     pdf: bytes
     removed: list[str] = field(default_factory=list)  # names dropped to fit, in the order dropped
+    gap: float = 1.0             # spacing multiplier used to fill the page
 
 
 def _display(url: str) -> str:
@@ -72,17 +76,18 @@ def _profile_links(contact: dict[str, str]) -> list[str]:
 # =============================================================================
 # PDF
 # =============================================================================
-def _pdf_story(doc: dict[str, Any], size: float) -> list:
-    base = ParagraphStyle("base", fontName="Helvetica", fontSize=size, leading=size * 1.25)
+def _pdf_story(doc: dict[str, Any], size: float, gap: float = 1.0) -> list:
+    extra = gap - 1  # 0 at normal spacing
+    base = ParagraphStyle("base", fontName="Helvetica", fontSize=size, leading=size * (1.25 + 0.08 * extra))
     name = ParagraphStyle("name", parent=base, fontName="Helvetica-Bold", fontSize=size * 2.1,
                           leading=size * 2.5, alignment=TA_CENTER)
     center = ParagraphStyle("center", parent=base, alignment=TA_CENTER)
     contact_style = ParagraphStyle("contact", parent=center, fontSize=size * 0.88, leading=size * 1.15)
     head = ParagraphStyle("head", parent=base, fontName="Helvetica-Bold", fontSize=size * 1.1,
-                          textColor=ACCENT, spaceBefore=size * 0.6, spaceAfter=1)
+                          textColor=ACCENT, spaceBefore=size * 0.6 * gap, spaceAfter=1)
     bold = ParagraphStyle("bold", parent=base, fontName="Helvetica-Bold")
     right = ParagraphStyle("right", parent=base, alignment=2, textColor=MUTED, fontSize=size * 0.92)
-    bullet = ParagraphStyle("bullet", parent=base)
+    bullet = ParagraphStyle("bullet", parent=base, spaceAfter=size * 0.12 * extra)
     c = doc["contact"]
     link = lambda url, text: f'<link href="{escape(url)}" color="#{ACCENT_HEX}">{escape(text)}</link>'  # noqa: E731
 
@@ -99,13 +104,15 @@ def _pdf_story(doc: dict[str, Any], size: float) -> list:
 
     def section(title: str) -> None:
         story.append(Paragraph(escape(title), head))
-        story.append(HRFlowable(width="100%", thickness=0.6, color=ACCENT, spaceBefore=0, spaceAfter=size * 0.3))
+        story.append(HRFlowable(width="100%", thickness=0.6, color=ACCENT, spaceBefore=0,
+                                spaceAfter=size * 0.3 * gap))
 
     def row(left: str, right_text: str, split: float = 0.78) -> None:
         t = Table([[Paragraph(left, bold), Paragraph(escape(right_text), right)]],
                   colWidths=[width * split, width * (1 - split)])
         t.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                               ("TOPPADDING", (0, 0), (-1, -1), 1), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                               ("TOPPADDING", (0, 0), (-1, -1), 1 + size * 0.25 * extra),
+                               ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
                                ("VALIGN", (0, 0), (-1, -1), "TOP")]))
         story.append(t)
 
@@ -125,7 +132,7 @@ def _pdf_story(doc: dict[str, Any], size: float) -> list:
         bullets(p["bullets"])
     section("Skills")
     for title, names in doc["skills"]:
-        story.append(Paragraph(f"<b>{escape(title)}:</b> {escape(', '.join(names))}", base))
+        story.append(Paragraph(f"<b>{escape(title)}:</b> {escape(', '.join(names))}", bullet))
     section("Education")
     for e in doc["education"]:
         row(escape(e["school"]), e["dates"])
@@ -146,12 +153,12 @@ def _pdf_story(doc: dict[str, Any], size: float) -> list:
     return story
 
 
-def _build_pdf(doc: dict[str, Any], size: float) -> bytes:
+def _build_pdf(doc: dict[str, Any], size: float, gap: float = 1.0) -> bytes:
     buffer = io.BytesIO()
     template = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=0.5 * inch, rightMargin=0.5 * inch,
                                  topMargin=0.4 * inch, bottomMargin=0.4 * inch,
                                  title=f"{doc['contact']['name']} - Resume", author=doc["contact"]["name"])
-    template.build(_pdf_story(doc, size))
+    template.build(_pdf_story(doc, size, gap))
     return buffer.getvalue()
 
 
@@ -204,7 +211,13 @@ def fit_one_page(doc: dict[str, Any]) -> Fitted:
             f"The resume is still {_pages(data)} pages {dropped}and shrinking the font to {MIN_SIZE}pt. "
             "Nothing was saved. Shorten some bullets or choose fewer of them for this track in "
             "profile/baseline.yaml.")
-    return Fitted(current, size, data, removed)
+    gap = 1.0
+    if size == MAX_SIZE and not removed:  # room to spare: fill the page instead of leaving its bottom empty
+        while size + SIZE_STEP <= GROW_SIZE and _pages(bigger := _build_pdf(current, size + SIZE_STEP)) == 1:
+            size, data = size + SIZE_STEP, bigger
+        while gap + GAP_STEP <= MAX_GAP and _pages(wider := _build_pdf(current, size, gap + GAP_STEP)) == 1:
+            gap, data = round(gap + GAP_STEP, 2), wider
+    return Fitted(current, size, data, removed, gap)
 
 
 def write_pdf(doc: dict[str, Any], path: Path) -> int:
@@ -221,7 +234,7 @@ def write_resume(doc: dict[str, Any], pdf_path: Path, docx_path: Path) -> Fitted
     """
     fitted = fit_one_page(doc)
     Path(pdf_path).write_bytes(fitted.pdf)
-    _write_docx(fitted.doc, docx_path, fitted.size)
+    _write_docx(fitted.doc, docx_path, fitted.size, fitted.gap)
     return fitted
 
 
@@ -266,11 +279,12 @@ def _rule_below(paragraph) -> None:
 def write_docx(doc: dict[str, Any], path: Path) -> None:
     """Write the Word file with the same one-page fitting as the PDF (raises OnePageError if impossible)."""
     fitted = fit_one_page(doc)
-    _write_docx(fitted.doc, path, fitted.size)
+    _write_docx(fitted.doc, path, fitted.size, fitted.gap)
 
 
-def _write_docx(doc: dict[str, Any], path: Path, size: float = MAX_SIZE) -> None:
+def _write_docx(doc: dict[str, Any], path: Path, size: float = MAX_SIZE, gap: float = 1.0) -> None:
     scale = size / MAX_SIZE
+    extra = gap - 1
     document = Document()
     section = document.sections[0]
     section.page_width, section.page_height = Inches(8.27), Inches(11.69)
@@ -309,7 +323,7 @@ def _write_docx(doc: dict[str, Any], path: Path, size: float = MAX_SIZE) -> None
 
     def heading(title: str) -> None:
         h = para()
-        h.paragraph_format.space_before = Pt(7)
+        h.paragraph_format.space_before = Pt(7 * gap)
         h.paragraph_format.space_after = Pt(2)
         r = h.add_run(title)
         r.bold, r.font.size = True, Pt(11 * scale)
@@ -319,7 +333,7 @@ def _write_docx(doc: dict[str, Any], path: Path, size: float = MAX_SIZE) -> None
     def row(left: str, right_text: str, url: str = "") -> None:
         r_p = para()
         r_p.paragraph_format.tab_stops.add_tab_stop(right_tab, WD_TAB_ALIGNMENT.RIGHT)
-        r_p.paragraph_format.space_before = Pt(2)
+        r_p.paragraph_format.space_before = Pt(2 + 2 * extra)
         if url:
             _hyperlink(r_p, url, left, bold=True)
         else:
@@ -331,7 +345,7 @@ def _write_docx(doc: dict[str, Any], path: Path, size: float = MAX_SIZE) -> None
     def bullets(items: list[str]) -> None:
         for item in items:
             b = document.add_paragraph(item, style="List Bullet")
-            b.paragraph_format.space_after = Pt(0)
+            b.paragraph_format.space_after = Pt(1.2 * extra)
 
     heading("Experience")
     for e in doc["experience"]:

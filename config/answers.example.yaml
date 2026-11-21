@@ -6,6 +6,7 @@
 # Entries with an empty answer are ignored. Fill in only what is true.
 
 portfolio: ""            # only to use a different link than contact.portfolio in your profile on forms
+citizen_of: ""            # e.g. India: answers "source of your right to work" with Citizen for jobs there
 
 answers:
   - question: "current (ctc|salary|compensation)"

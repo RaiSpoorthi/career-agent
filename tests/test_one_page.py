@@ -140,3 +140,15 @@ def test_packet_logs_layout_error_instead_of_two_page_pdf(profile, tmp_path, mon
     assert t.get(row["id"])["status"] == "discovered"
     assert any("still 2 pages" in e["message"] for e in t.events(10, job_id=row["id"]))
     assert any("still 2 pages" in s for s in said)
+
+
+def test_a_short_resume_is_spread_to_fill_its_page_with_the_same_words(profile):
+    doc = layout(profile, base_content(profile, "software"))
+    doc["experience"] = doc["experience"][:1]  # much shorter than a page
+    normal = render._build_pdf(doc, MAX_SIZE)
+    fitted = fit_one_page(doc)
+    assert render._pages(fitted.pdf) == 1 and (fitted.size > MAX_SIZE or fitted.gap > 1)
+
+    def words(data):
+        return PdfReader(__import__("io").BytesIO(data)).pages[0].extract_text().split()
+    assert words(fitted.pdf) == words(normal)  # nothing added or removed: the ATS reads the same text

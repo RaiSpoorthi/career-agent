@@ -170,9 +170,15 @@ def _sanitize_skills(profile: Profile, proposed: dict[str, list[str]], base: dic
                 level, canonical = "project", stack_names[key]
             if level in CLAIMABLE:
                 seen.add(key)
-                if target is None:
+                own = next((s["group"] for s in profile.skills() if s["name"].lower() == key), None)
+                if target is None or (target == "languages" and own and own != "languages"):
+                    # The skill's own group from the profile (created if this track's resume lacks it), never
+                    # whichever group happens to be first: AWS must not land under "Languages".
                     match_group = next((s["group"] for s in profile.skills() if s["name"].lower() == key), None)
-                    target_group = match_group if match_group in out else next(iter(out))
+                    target_group = match_group or next((g for g in ("tools", "devtools") if g in out), "tools")
+                    if target_group == "familiar":  # a stack tool listed as familiar in skills: keep it claimable
+                        target_group = "tools"
+                    out.setdefault(target_group, [])
                 else:
                     target_group = target
                 out[target_group].append(canonical)

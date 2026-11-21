@@ -207,6 +207,10 @@ if(!r.running){clearInterval(t);location.reload()}}catch(e){}},2000)</script>{% 
 
     "needs.html": """{% extends 'base.html' %}{% block body %}
 <h1>Needs you</h1><div class="muted" style="margin-bottom:16px">Applications the agent could not finish alone. "Take over" opens the form in a browser on this computer with everything it can answer already filled in; you finish and press Submit.</div>
+{% if finishable %}<div class="card"><div class="row" style="justify-content:space-between;align-items:center">
+<div><b>Finish all {{ finishable }} in a row</b><div class="note">Each form opens filled in, with your tailored resume attached, one after another.
+Tick the captcha if there is one, check it and press Submit; the next one opens by itself. Close a window to skip that job.</div></div>
+<form method="post" action="{{ url_for('finish_all') }}" class="inline"><button>Finish all →</button></form></div></div>{% endif %}
 {% for r in rows %}<div class="card"><div class="row" style="justify-content:space-between">
 <div><a href="{{ url_for('job', job_id=r.id) }}"><b>{{ r.role }}</b></a> · {{ r.company }} <span class="note">· {{ r.location }} · pay {{ r.salary or 'not stated' }} · {{ r.id }} · keyword {{ r.keyword_score }}%</span>
 {% if r.glance %}<div class="note" style="margin-top:4px">{{ r.glance }}</div>{% endif %}
@@ -584,7 +588,15 @@ def create_app(root: Path = ROOT) -> Flask:
             path = tracker.jd_dir / f"{r['id']}.txt"
             r["glance"] = (summarize(prof, path.read_text(encoding="utf-8"), r["location"], r["role"],
                                      _saved(tracker, r)).one_line if path.exists() else "")
-        return render_template("needs.html", active="needs", rows=waiting)
+        return render_template("needs.html", active="needs", rows=waiting,
+                               finishable=sum(1 for r in waiting if r["automatable"] and r["output_dir"]))
+
+    @app.post("/finish-all")
+    def finish_all():
+        if open_browser("finish-all", "Finish all", "finish-all"):
+            flash("The first filled form opens in a browser window on this computer in about 20 seconds. Submit it "
+                  "(or close it to skip) and the next one opens by itself.")
+        return redirect(url_for("needs"))
 
     @app.get("/jobs")
     def jobs():

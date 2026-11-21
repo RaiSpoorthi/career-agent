@@ -92,6 +92,10 @@ def build(profile: Profile, job: dict[str, str], fit: FitReport, cover_note: str
         ("work_auth", r"authori[sz]ed to work|legally (able|allowed|permitted|entitled) to work|"
                       r"(?<!source of your )(?<!basis of your )right to work|"
                       r"eligible to work|work permit", "No" if fit.abroad else "Yes"),
+        # "What is the source of your right to work?" -> Citizen, only for a job in the country you are a citizen of
+        # (config/answers.yaml `citizen_of`); anywhere else it stays for you.
+        ("rtw_source", r"(source|basis) of your right to work|right to work (status|type)",
+         "Citizen" if not fit.abroad and str(extra.get("citizen_of") or "").strip().lower() == country.lower() else ""),
         ("salary", r"(expected|desired|target).{0,20}(salary|ctc|compensation|pay)|salary expectation|"
                    r"compensation expectation", expected_salary(profile, fit, market)),
         ("heard", r"how did you (hear|find|learn)|where did you (hear|find)|source of application", heard),

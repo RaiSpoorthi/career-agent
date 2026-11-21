@@ -131,7 +131,13 @@ def test_answers_come_only_from_profile_and_your_file(profile):
     assert get("Have you previously worked for Acme (formerly Acme Labs)?*") == "No"
     rules_here = ans.build(profile, {"company": now["org"]}, fit, extra={})
     assert ans.answer_for(rules_here, f"Have you ever been employed by {now['org']}?").value == "Yes"
+    rtw = "What is the source of your right to work where this role is listed?*"
+    assert get(rtw) is None  # citizen_of not set: never assumed
+    home = ans.home_country(profile)
+    citizen = ans.build(profile, row, fit, extra={"citizen_of": home})
+    assert ans.answer_for(citizen, rtw).value == "Citizen"
     abroad = fitmod.check(profile, "Engineer in Berlin, Germany. Visa sponsorship available.", "Berlin")
+    assert ans.answer_for(ans.build(profile, row, abroad, extra={"citizen_of": home}), rtw) is None
     rules = ans.build(profile, row, abroad, extra={})
     assert ans.answer_for(rules, "Do you require visa sponsorship?").value == "Yes"
 
@@ -538,6 +544,16 @@ def test_needs_you_page_and_actions(client):
     c.post("/job/J0001/takeover")
     c.post("/run")
     assert started == [("takeover", "J0001"), ("run",)]
+
+
+def test_finish_all_queues_only_forms_the_agent_can_fill(client, monkeypatch):
+    import jobs
+    c, t, started = client
+    page = c.get("/needs").get_data(as_text=True)
+    assert "Finish all 1 in a row" in page  # J0002 (Naukri) is never automated
+    c.post("/finish-all")
+    assert started == [("finish-all",)]
+    assert [r["id"] for r in jobs.finish_queue(t)] == ["J0001"]
 
 
 def test_home_lists_what_was_submitted_while_you_were_away(client):
