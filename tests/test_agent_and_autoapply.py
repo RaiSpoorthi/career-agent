@@ -224,6 +224,23 @@ def test_add_manual_scores_reuses_links_and_rejects_bad_input(tmp_path, profile)
         pipeline.add_manual(t, profile, url="", text="short", company="A", role="B")
 
 
+def test_bookmark_adds_the_description_to_a_waiting_linkedin_job(tmp_path, profile):
+    t = Tracker(tmp_path)
+    old = t.add(company="Unknown (from alert)", role="Apply Now", url="https://www.linkedin.com/jobs/view/4492429472/",
+                location="", text="", track="", keyword_score=0, fit="", status="needs-description", source="telegram")
+    # The same job viewed in the browser: a search page with ?currentJobId=, and the long /jobs/view/ form.
+    for url in ("https://www.linkedin.com/jobs/collections/recommended/?currentJobId=4492429472&trk=x",
+                "https://in.linkedin.com/jobs/view/iam-analyst-at-acme-4492429472?refId=abc"):
+        assert t.find_listing(url)["id"] == old["id"]
+    assert t.find_listing("https://www.linkedin.com/jobs/view/4492429999/") is None
+    row, new = pipeline.add_manual(t, profile, url="https://www.linkedin.com/jobs/view/4492429472/?trk=alert",
+                                   text=JD, company="Acme", role="IAM Analyst", location="Bengaluru")
+    assert not new and row["id"] == old["id"] and len(t.rows()) == 1
+    assert row["status"] in ("discovered", "skipped") and int(row["keyword_score"]) > 0
+    assert (row["company"], row["role"], row["location"]) == ("Acme", "IAM Analyst", "Bengaluru")
+    assert t.jd_text(old["id"]).strip() == JD.strip()
+
+
 def test_apply_now_follows_apply_mode(tmp_path, profile):
     t = Tracker(tmp_path)
     built, applied = [], []

@@ -25,6 +25,17 @@ STATUSES = ["discovered", "needs-description", "packet-ready", "awaiting-human",
 SUBMITTED = ("applied-auto", "completed-manual")
 # Names used by earlier versions (and still accepted on the command line).
 LEGACY = {"found": "discovered", "new": "discovered", "analyzed": "packet-ready", "applied": "completed-manual"}
+LINKEDIN_JOB = re.compile(r"linkedin\.com/(?:[^#]*?[?&]currentJobId=|jobs/view/(?:[^/?#]*-)?)(\d{6,})", re.I)
+NAUKRI_JOB = re.compile(r"naukri\.com/job-listings-[^?#]*?-(\d{9,})", re.I)
+
+
+def listing_key(url: str) -> str:
+    """'linkedin:<job id>' / 'naukri:<job id>' for a job link on those sites, else ""."""
+    if m := LINKEDIN_JOB.search(url or ""):
+        return "linkedin:" + m.group(1)
+    if m := NAUKRI_JOB.search(url or ""):
+        return "naukri:" + m.group(1)
+    return ""
 FIELDS = ["id", "added", "updated", "company", "role", "location", "url", "apply_url", "track", "keyword_score",
           "ats_score", "fit", "status", "output_dir", "notes", "source", "date_applied", "ats_before",
           "ats_after", "shortlist_pct", "dedupe_key", "handoff_reason", "apply_method", "attempts", "salary",
@@ -234,6 +245,18 @@ class Tracker:
         with self._db() as db:
             row = db.execute("SELECT * FROM jobs WHERE rtrim(trim(url), '/') = ?", (url,)).fetchone()
         return {f: row[f] for f in FIELDS} if row else None
+
+    def find_listing(self, url: str) -> dict[str, str] | None:
+        """find_url, and also the same LinkedIn/Naukri job under another link (tracking parameters, a
+        search page with ?currentJobId=...), so the bookmark adds a description to the job saved before."""
+        if row := self.find_url(url):
+            return row
+        key = listing_key(url)
+        if not key:
+            return None
+        with self._db() as db:
+            rows = db.execute("SELECT * FROM jobs WHERE url LIKE ?", (f"%{key.split(':')[1]}%",)).fetchall()
+        return next(({f: r[f] for f in FIELDS} for r in rows if listing_key(r["url"]) == key), None)
 
     def submitted_today(self) -> int:
         today = datetime.now().strftime("%Y-%m-%d")

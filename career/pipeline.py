@@ -14,7 +14,7 @@ from typing import Any
 import yaml
 
 from career import fit as fitmod
-from career import keywords, linksafety, sources
+from career import jdfetch, keywords, linksafety, sources
 from career.profile import Profile, personal_file
 from career.tracker import Tracker
 
@@ -194,11 +194,23 @@ def add_manual(tracker: Tracker, profile: Profile, *, url: str, text: str, compa
     """Save a job you found yourself and score it. Returns (row, is_new); a link saved before is reused.
 
     Your own pick is never auto-skipped: fit warnings are kept in its notes for you to read.
+    A saved job that is still waiting for its description (e.g. a LinkedIn link from Telegram) gets this text.
     """
     text, url = (text or "").strip(), (url or "").strip()
     if len(text) < 80:
         raise ValueError("That job description looks too short. Paste the full text.")
-    if url and (dup := tracker.find_url(url)):
+    if url and (dup := tracker.find_listing(url)):
+        if dup["status"] == "needs-description":
+            # Names from the page replace placeholders such as "Unknown (from alert)" or "Apply Now".
+            def placeholder(old: str) -> bool:
+                old = (old or "").strip()
+                return not old or old.lower().startswith("unknown") or bool(jdfetch.VAGUE_TITLE.match(old))
+
+            names = {k: v.strip() for k, v in (("company", company), ("role", role), ("location", location))
+                     if v.strip() and placeholder(dup[k])}
+            if names:
+                tracker.update(dup["id"], **names)
+            dup = attach_description(tracker, profile, dup["id"], text)
         return dup, False
     kw = keywords.match(profile, text)
     report = fitmod.check(profile, text, location, role)

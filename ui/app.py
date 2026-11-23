@@ -200,7 +200,8 @@ if(!r.running){clearInterval(t);location.reload()}}catch(e){}},2000)</script>{% 
 {% else %}<div class="muted">Nothing new. Add companies in config/sources.yaml, drop alert emails in inbox/, or add a job by hand.</div>{% endif %}</div>
 </div>
 {% if needs %}<div class="card"><h2>Need the job description ({{ needs|length }})</h2>
-<div class="muted" style="margin-bottom:8px">Alert emails and some career pages only give a title and link. Open the listing, copy the full description, and paste it on the job page.</div>
+<div class="muted" style="margin-bottom:8px">Alert emails and some career pages only give a title and link. Fastest way: click <b>open listing</b>,
+then the <b>Save to Career Agent</b> bookmark (set it up once on <a href="{{ url_for('add_job') }}">Add job</a>) and press a button: the description is added to the same job.</div>
 <table>{% for r in needs %}<tr><td><a href="{{ url_for('job', job_id=r.id) }}">{{ r.role }}</a></td><td>{{ r.source }}</td><td><a href="{{ r.url }}" target="_blank" rel="noopener">open listing</a></td></tr>{% endfor %}</table></div>{% endif %}
 <div class="card"><h2>Recent activity</h2><pre>{{ log }}</pre></div>
 {% endblock %}""",
@@ -389,6 +390,8 @@ try{await navigator.clipboard.writeText(b.dataset.v);const t=b.textContent;b.tex
 <h1>Apply to a job you found</h1>
 <div class="muted" style="margin-bottom:16px">Paste the link and the full description. The agent scores it and tailors your
 resume with Gemini. {{ next_step }}</div>
+{% if waiting %}<div class="card" style="border-left:4px solid var(--accent, #2563eb)"><b>This is {{ waiting.id }}: {{ waiting.role }} · {{ waiting.company }}</b>, saved earlier
+and waiting for its description. Press a button below and this text is added to {{ waiting.id }} (no duplicate is made).</div>{% endif %}
 <div class="grid" style="grid-template-columns:2fr 1fr;align-items:start">
 <form method="post" action="{{ url_for('add_job') }}" class="card">
 <label class="field"><b>Job link</b><input name="url" type="url" required placeholder="https://job-boards.greenhouse.io/company/jobs/123" value="{{ form.url }}"></label>
@@ -697,18 +700,26 @@ def create_app(root: Path = ROOT) -> Flask:
             try:
                 if not form["url"].strip().startswith(("https://", "http://")):
                     raise ValueError("The job link must start with https://")
+                waiting = tracker.find_listing(form["url"])
+                waiting = waiting if waiting and waiting["status"] == "needs-description" else None
                 row, is_new = pipeline.add_manual(tracker, profile(), **form)
             except ValueError as exc:
                 flash(str(exc))
-                return render_template("add.html", active="add", form=form, next_step=next_step)
-            if not is_new:
+                return render_template("add.html", active="add", form=form, next_step=next_step, waiting=None)
+            if waiting:
+                flash(f"Description added to {row['id']}: keyword {row['keyword_score']}%, fit {row['fit']}.")
+                if row["status"] == "skipped":
+                    return redirect(url_for("job", job_id=row["id"]))
+            elif not is_new:
                 flash(f"That link is already saved as {row['id']}.")
             if request.form.get("only_save"):
                 flash(f"Saved {row['id']}: keyword {row['keyword_score']}%, fit {row['fit']}.")
             else:
                 open_browser(row["id"], f"Apply {row['id']}", "apply-now", row["id"])
             return redirect(url_for("job", job_id=row["id"]))
-        return render_template("add.html", active="add", form=form, next_step=next_step)
+        waiting = tracker.find_listing(form["url"]) if form["url"] else None
+        waiting = waiting if waiting and waiting["status"] == "needs-description" else None
+        return render_template("add.html", active="add", form=form, next_step=next_step, waiting=waiting)
 
     @app.post("/job/<job_id>/takeover")
     def takeover(job_id):

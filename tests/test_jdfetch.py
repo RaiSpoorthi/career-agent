@@ -47,6 +47,26 @@ def test_other_pages_only_when_robots_allows_and_without_scripts():
                                      robots=lambda u, read: False) == ""
 
 
+def test_javascript_career_pages_are_read_from_their_job_posting_data():
+    import json
+    data = {"@context": "https://schema.org", "@type": "JobPosting", "title": "Software Engineer",
+            "description": BODY, "jobLocation": [{"address": {"addressLocality": "Bengaluru", "addressCountry": "IN"}}]}
+    page = (f'<html><script type="application/ld+json">{json.dumps(data)}</script>'
+            '<div id="app"></div><script>window.boot()</script></html>')
+    text = jdfetch.fetch_description("https://careers.acme.com/job/1", read=lambda u: page, read_json=never,
+                                     robots=lambda u, read: True)
+    assert text.startswith("Software Engineer\nBengaluru, IN") and "Responsibilities" in text
+    assert "boot" not in text
+    apple = ('<script>window.__data = JSON.parse("{\\"postingTitle\\":\\"Junior Engineer\\",\\"jobSummary\\":\\"'
+             + "You will build services. " * 10 + '\\",\\"minimumQualifications\\":\\"Qualifications: Python '
+             'and experience with REST APIs, testing and skills in Git.\\",\\"x\\":1}")</script>')
+    text = jdfetch._structured(apple)
+    assert text.startswith("Junior Engineer") and "Qualifications: Python" in text
+    # robots.txt still decides
+    assert jdfetch.fetch_description("https://careers.acme.com/job/1", read=lambda u: page, read_json=never,
+                                     robots=lambda u, read: False) == ""
+
+
 @pytest.mark.parametrize("page", ["<p>Sign in to continue</p>" * 60,  # not a job description
                                   "<h1>Page not found</h1>" + BODY])  # an error page
 def test_pages_that_are_not_job_descriptions_are_rejected(page):

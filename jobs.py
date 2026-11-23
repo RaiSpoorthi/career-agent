@@ -98,7 +98,7 @@ def _print_match(kw: keywords.KeywordMatch, fit: fitmod.FitReport) -> None:
 # ---------------------------------------------------------------------------
 def cmd_add(args) -> int:
     profile, t = _profile(), tracker.Tracker()
-    if args.url and (dup := t.find_url(args.url)):
+    if args.url and (dup := t.find_listing(args.url)) and dup["status"] != "needs-description":
         say(f"Already saved as {dup['id']} ({dup['role']} @ {dup['company']}).")
         if args.apply:
             return cmd_apply_now(argparse.Namespace(job_id=dup["id"]))

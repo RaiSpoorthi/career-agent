@@ -2,13 +2,16 @@
 
 Public job data only, read as plain text (no browser, no scripts run):
   * Workday, Greenhouse, Lever and Ashby job pages -> their public job-posting JSON;
-  * any other job page -> its HTML as text, only if robots.txt allows it and the page has enough text.
+  * any other job page, only if robots.txt allows it -> the JobPosting data published in its HTML (most
+    JavaScript career sites include it for search engines), else the HTML as text if it has enough text.
 Links to sites that need an account (LinkedIn, Naukri...) and links that fail the safety screen
 (career/linksafety.py) are never fetched. Returns "" when nothing usable was found.
 """
 
 from __future__ import annotations
 
+import html
+import json
 import re
 import time
 from urllib.parse import urlparse
@@ -38,6 +41,55 @@ def _workday(data: dict) -> str:
     info = data.get("jobPostingInfo") or {}
     head = "\n".join(x for x in (info.get("title"), info.get("location"), info.get("timeType")) if x)
     return head + "\n\n" + sources.html_to_text(info.get("jobDescription") or "")
+
+
+LD_JSON = re.compile(r"(?is)<script[^>]*application/ld\+json[^>]*>(.*?)</script>")
+APPLE_FIELDS = ("postingTitle", "jobSummary", "description", "responsibilities", "minimumQualifications",
+                "preferredQualifications")
+
+
+def _job_postings(node):
+    if isinstance(node, list):
+        for item in node:
+            yield from _job_postings(item)
+    elif isinstance(node, dict):
+        kind = node.get("@type")
+        if kind == "JobPosting" or (isinstance(kind, list) and "JobPosting" in kind):
+            yield node
+        yield from _job_postings(node.get("@graph") or [])
+
+
+def _structured(page: str) -> str:
+    """The description a career page publishes as data inside its HTML: a schema.org JobPosting (what
+    Google for Jobs reads; most JavaScript career sites include it) or Apple's page data. Plain text read
+    from the page; no script is run."""
+    for block in LD_JSON.findall(page or ""):
+        try:
+            data = json.loads(html.unescape(block.strip()))
+        except ValueError:
+            continue
+        for job in _job_postings(data):
+            place = job.get("jobLocation")
+            place = place[0] if isinstance(place, list) and place else place
+            address = (place or {}).get("address") if isinstance(place, dict) else None
+            city = ", ".join(str(address.get(k)) for k in ("addressLocality", "addressRegion", "addressCountry")
+                             if isinstance(address, dict) and isinstance(address.get(k), str))
+            body = sources.html_to_text(html.unescape(str(job.get("description") or "")))
+            if body:
+                return f"{job.get('title') or ''}\n{city}\n\n{body}"
+    if '\\"jobSummary\\"' in (page or "") or '"jobSummary"' in (page or ""):  # jobs.apple.com
+        parts = []
+        for name in APPLE_FIELDS:
+            m = re.search(r'\\?"' + name + r'\\?":\\?"((?:[^"\\]|\\.)*?)\\?"(?=,\\?")', page)
+            if m:
+                value = m.group(1).replace('\\\\', '\\')
+                try:
+                    value = json.loads(f'"{value}"')
+                except ValueError:
+                    pass
+                parts.append(sources.html_to_text(value))
+        return "\n\n".join(p for p in parts if p)
+    return ""
 
 
 def fetch_description(url: str, read=sources.fetch_text, read_json=sources.fetch_json,
@@ -78,8 +130,9 @@ def fetch_description(url: str, read=sources.fetch_text, read_json=sources.fetch
         else:
             if not robots(url, read=read):
                 return ""
-            page = re.sub(r"(?is)<(script|style|noscript|svg)\b.*?</\1>", " ", read(url))
-            text = sources.html_to_text(page)
+            raw = read(url)
+            text = _structured(raw) or sources.html_to_text(
+                re.sub(r"(?is)<(script|style|noscript|svg)\b.*?</\1>", " ", raw))
     except Exception:
         return ""
     text = re.sub(r"\n{3,}", "\n\n", text or "").strip()
