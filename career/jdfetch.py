@@ -14,6 +14,7 @@ import html
 import json
 import re
 import time
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 from career import linksafety, sources
@@ -172,6 +173,28 @@ def _places(tracker) -> list[str]:
         return []
 
 
+STALE_NOTE = "Set aside: still no description after {days} days (old listings are usually closed)"
+
+
+def set_aside_stale(tracker, now: datetime | None = None, say=print) -> int:
+    """Move jobs that have waited for a description longer than `description_wait_days` to skipped, so
+    the waiting list holds only listings recent enough to be worth opening. 0 days = never."""
+    try:
+        days = int(tracker.setting("description_wait_days") or 0)
+    except ValueError:
+        days = 0
+    if days <= 0:
+        return 0
+    cutoff = ((now or datetime.now()) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M")
+    stale = [r for r in tracker.rows("needs-description") if r["added"] and r["added"] < cutoff]
+    for row in stale:
+        tracker.update(row["id"], status="skipped",
+                       notes="; ".join(n for n in (STALE_NOTE.format(days=days), row["notes"]) if n))
+    if stale:
+        say(f"  {len(stale)} job(s) still without a description after {days} days set aside (see Skipped).")
+    return len(stale)
+
+
 def fill_missing(tracker, profile, limit: int = 60, delay: float = sources.REQUEST_DELAY_SECONDS,
                  fetch=fetch_description, sleep=time.sleep, say=print, find_on_board=None) -> dict[str, int]:
     """Fetch descriptions for saved jobs still waiting for one, and score them (pipeline.attach_description)."""
@@ -179,7 +202,8 @@ def fill_missing(tracker, profile, limit: int = 60, delay: float = sources.REQUE
 
     if find_on_board is None:
         from career.findjob import find as find_on_board
-    counts = {"found": 0, "not_found": 0, "on_company_board": 0}
+    counts = {"found": 0, "not_found": 0, "on_company_board": 0, "set_aside": 0}
+    counts["set_aside"] = set_aside_stale(tracker, say=say)
     todo = [r for r in tracker.rows("needs-description") if TRIED not in (r["notes"] or "")][:limit]
     places = _places(tracker)
     feeds: dict = {}

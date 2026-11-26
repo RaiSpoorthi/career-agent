@@ -101,9 +101,25 @@ def test_fill_missing_scores_found_jobs_and_does_not_retry_the_rest(tmp_path, pr
         calls.append(url)
         return jdfetch.sources.html_to_text(BODY) if url.endswith("/0") else ""
     assert jdfetch.fill_missing(t, profile, fetch=fetch, sleep=lambda s: None, say=lambda *_: None) == \
-        {"found": 1, "not_found": 1, "on_company_board": 0}
+        {"found": 1, "not_found": 1, "on_company_board": 0, "set_aside": 0}
     found, missing = t.get("J0001"), t.get("J0002")
     assert found["status"] in ("discovered", "skipped") and found["company"] == "Acme"
     assert found["role"] == "Software Engineer" and missing["status"] == "needs-description"
     jdfetch.fill_missing(t, profile, fetch=fetch, sleep=lambda s: None, say=lambda *_: None)
     assert calls.count("https://careers.acme.com/1") == 1  # not fetched again on the next run
+
+
+def test_jobs_waiting_too_long_for_a_description_are_set_aside(tmp_path):
+    from datetime import datetime
+    t = Tracker(tmp_path)
+    for url in ("https://www.linkedin.com/jobs/view/1/", "https://www.linkedin.com/jobs/view/2/"):
+        t.add(company="Acme", role="SDE", url=url, location="", text="", track="", keyword_score=0, fit="",
+              status="needs-description", source="telegram")
+    t.update("J0001", added="2026-11-10 09:00")
+    t.update("J0002", added="2026-11-20 09:00")
+    now = datetime(2026, 11, 26, 12, 0)
+    assert jdfetch.set_aside_stale(t, now=now, say=lambda *_: None) == 1
+    assert t.get("J0001")["status"] == "skipped" and "7 days" in t.get("J0001")["notes"]
+    assert t.get("J0002")["status"] == "needs-description"
+    t.set_setting("description_wait_days", "0")  # 0 = keep waiting
+    assert jdfetch.set_aside_stale(t, now=datetime(2027, 1, 1), say=lambda *_: None) == 0

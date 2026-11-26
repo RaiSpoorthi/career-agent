@@ -14,6 +14,8 @@ Your personal files go from this computer to the cloud (you edit them here), nev
 
 from __future__ import annotations
 
+import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -158,8 +160,39 @@ def sync_folders(app: Path, state: Path, personal_from_state: bool) -> dict[str,
     return counts
 
 
+GIT_TIMEOUT = 180
+_env_cache: dict[str, dict[str, str]] = {}
+
+
+def _git_env(state: Path) -> dict[str, str]:
+    """Environment for git in the state repo. Never waits for a password prompt. When the GitHub CLI is
+    logged in to several accounts and the active one is not the state repo's owner (e.g. a work account),
+    git gets the owner's token from `gh auth token -u <owner>`, so syncing doesn't depend on `gh auth switch`."""
+    key = str(state)
+    if key not in _env_cache:
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"}
+        url = subprocess.run(["git", "-C", key, "remote", "get-url", "origin"], capture_output=True,
+                             text=True).stdout.strip()
+        owner = re.match(r"https://github\.com/([\w-]+)/", url)
+        if owner and not env.get("GH_TOKEN") and shutil.which("gh"):
+            try:
+                token = subprocess.run(["gh", "auth", "token", "-u", owner.group(1)], capture_output=True,
+                                       text=True, timeout=30).stdout.strip()
+            except (OSError, subprocess.TimeoutExpired):
+                token = ""
+            if token:
+                env["GH_TOKEN"] = token  # read by gh's git credential helper; never printed or stored
+        _env_cache[key] = env
+    return _env_cache[key]
+
+
 def _git(state: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    result = subprocess.run(["git", "-C", str(state), *args], capture_output=True, text=True)
+    try:
+        result = subprocess.run(["git", "-C", str(state), *args], capture_output=True, text=True,
+                                env=_git_env(state), timeout=GIT_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        raise SyncError(f"git {args[0]} took longer than {GIT_TIMEOUT} seconds (GitHub login or network). "
+                        "Run `gh auth status` and check you're logged in to the state repo's owner.") from exc
     if check and result.returncode != 0:
         raise SyncError(f"git {' '.join(args)} failed: {(result.stderr or result.stdout).strip()[:300]}")
     return result

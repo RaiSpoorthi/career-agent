@@ -55,6 +55,7 @@ DEFAULT_SETTINGS = {
     "tick_consent_boxes": "off",     # on = tick required privacy/consent checkboxes for you
     "headless": "off",               # on = hide the browser window during automatic runs
     "handoff_wait_minutes": "20",    # how long the browser stays open when you take over
+    "description_wait_days": "7",    # a job still without its description after this many days is set aside (0 = never)
 }
 
 # Suggested free ways to close common gaps (learning only, never added to the resume).

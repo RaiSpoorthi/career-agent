@@ -51,6 +51,9 @@ SETTING_HELP = {
                            "off: a form with a required consent box is handed to you."),
     "headless": ("Hide the browser during automatic runs", ["off", "on"], ""),
     "handoff_wait_minutes": ("Minutes the browser stays open when you take over", None, ""),
+    "description_wait_days": ("Set aside jobs still missing a description after (days)", None,
+                              "Listings older than this are usually closed. They move to Skipped (you can still "
+                              "open them there). 0 = keep them waiting."),
 }
 LINK_HELP = {"supported": "a public form the agent can fill in.",
              "unsupported": "a company site the agent opens for you to fill in.",
